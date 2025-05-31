@@ -114,8 +114,8 @@ async def hey(interaction: discord.Interaction, message: str):
                 "Content-Type": "application/json"
             }
             payload = {
-                "model": "mistral-medium-2505",
-                "max_tokens": 400,
+              #  "model": "mistral-medium-2505",
+             #   "max_tokens": 400,
                 "agent_id": AGENT_ID_MISTRAL,
                 "messages": [
                     {"role": "user", "content": message}
@@ -133,12 +133,7 @@ async def hey(interaction: discord.Interaction, message: str):
         response_text = "Yo, j'crois que Mistral est en PLS là, réessaye plus tard."
 
     await interaction.followup.send(response_text, ephemeral=True)
-
-    try:
-        original_message = await interaction.original_response()
-        await original_message.add_reaction(random.choice(EMOJIS))
-    except Exception as e:
-        print(f"Erreur lors de l'ajout de la réaction : {e}")
+   
 
 # === News : Récupération et envoi RSS ===
 async def fetch_and_send_news():
