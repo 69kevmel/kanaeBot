@@ -105,7 +105,7 @@ async def on_message(message):
 @bot.tree.command(name="hey", description="Parle avec Kanaé, l'IA officielle du serveur !")
 @app_commands.describe(message="Ton message à envoyer")
 async def hey(interaction: discord.Interaction, message: str):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -114,20 +114,23 @@ async def hey(interaction: discord.Interaction, message: str):
                 "Content-Type": "application/json"
             }
             payload = {
-                "prompt": message,
+                "model": "mistral-medium-2505",
+                "max_tokens": 400,
                 "agent_id": AGENT_ID_MISTRAL,
-                "max_tokens": 400
+                "messages": [
+                    {"role": "user", "content": message}
+                ]
             }
-            async with session.post("https://api.mistral.ai/v1/chat/completions", headers=headers, json=payload) as resp:
-                print(f"Erreur lors de l'appel à l'API Mistral : {resp.status} - {resp.reason}, {resp.text}")
+            async with session.post("https://api.mistral.ai/v1/agents/completions", headers=headers, json=payload) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    response_text = data.get("response", "Désolé, j'ai pas compris frérot'.")
+                    response_text = data['choices'][0]['message']['content']
                 else:
-                    response_text = "Votre correspondant est actuellement injoignable."
+                    response_text = f"Yo, Mistral a répondu {resp.status}. J'sais pas ce qu'il veut là frérot."
+
     except Exception as e:
         print(f"Erreur lors de l'appel à l'API Mistral : {e}")
-        response_text = "Votre correspondant est actuellement injoignable."
+        response_text = "Yo, j'crois que Mistral est en PLS là, réessaye plus tard."
 
     await interaction.followup.send(response_text, ephemeral=True)
 
