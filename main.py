@@ -119,6 +119,7 @@ async def hey(interaction: discord.Interaction, message: str):
                 "max_tokens": 400
             }
             async with session.post("https://api.mistral.ai/v1/chat/completions", headers=headers, json=payload) as resp:
+                print(f"Erreur lors de l'appel à l'API Mistral : {resp}")
                 if resp.status == 200:
                     data = await resp.json()
                     response_text = data.get("response", "Désolé, j'ai pas compris frérot'.")
