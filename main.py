@@ -36,6 +36,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 sent_links = set()
 user_dm_counts = {}  # Dictionnaire pour compter les messages DM des users
 
+async def on_ready():
+    print(f"✅ KanaéBot prêt à diffuser la vibe en tant que {bot.user}")
+
 # === MP de bienvenue ===
 @bot.event
 async def on_member_join(member):
