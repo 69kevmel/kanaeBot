@@ -12,7 +12,7 @@ from discord import app_commands
 # === CONFIGURATION ===
 TOKEN = os.getenv('TOKEN')  # Ton token Discord
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')  # Clé API Mistral
-AGENT_ID_MISTRAL = os.getenv('AGENT_ID_MISTRAL')
+AGENT_ID_MISTRAL = os.getenv('AGENT_ID_MISTRAL')  # Agent ID Mistral
 NEWS_CHANNEL_ID = 1377605635365011496  # Salon des news
 CHANNEL_REGLES_ID = 1372288019977212017
 CHANNEL_PRESENTE_TOI_ID = 1372288185299636224
@@ -36,6 +36,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 sent_links = set()
 user_dm_counts = {}  # Dictionnaire pour compter les messages DM des users
 
+# === Bot Ready ===
+@bot.event
 async def on_ready():
     print(f"✅ KanaéBot prêt à diffuser la vibe en tant que {bot.user}")
 
@@ -45,17 +47,9 @@ async def on_member_join(member):
     try:
         view = discord.ui.View()
 
-        # === Boutons ===
         view.add_item(discord.ui.Button(label="📜 Règlement", style=discord.ButtonStyle.link, url=f"https://discord.com/channels/{member.guild.id}/{CHANNEL_REGLES_ID}"))
         view.add_item(discord.ui.Button(label="🙋 Présente-toi", style=discord.ButtonStyle.link, url=f"https://discord.com/channels/{member.guild.id}/{CHANNEL_PRESENTE_TOI_ID}"))
         view.add_item(discord.ui.Button(label="🌿 Montre ta batte", style=discord.ButtonStyle.link, url=f"https://discord.com/channels/{member.guild.id}/{CHANNEL_MONTRE_TA_BATTE_ID}"))
-
-        # === Bouton concours désactivé pour le moment ===
-        # view.add_item(discord.ui.Button(label="🌿 Découvre le concours", style=discord.ButtonStyle.primary, custom_id="bouton_concours"))
-        # Si tu veux activer le bouton concours plus tard :
-        # - Décommente la ligne ci-dessus.
-        # - Ajoute la gestion du bouton dans on_interaction ci-dessous.
-        # - Exemple d'ID de bouton : custom_id="bouton_concours"
 
         message = (
             f"🌿 Yo {member.name} ! Bienvenue dans le cercle **{member.guild.name}**.\n\n"
@@ -89,7 +83,6 @@ async def on_message(message):
         elif count == 2:
             response = "Frr laisse tomber, j'arrête de parler ici, viens sur le serv chui trop démarré là."
         else:
-            # Après 3 messages, plus de réponses
             return
 
         try:
@@ -105,9 +98,9 @@ async def on_message(message):
 @bot.tree.command(name="hey", description="Parle avec le bot via Mistral")
 @app_commands.describe(message="Ton message à envoyer")
 async def hey(interaction: discord.Interaction, message: str):
-    await interaction.response.defer()  # Déférer la réponse pour éviter le timeout
+    await interaction.response.defer()
 
-    # Appeler l'API Mistral
+    # Appel à l'API Mistral
     try:
         async with aiohttp.ClientSession() as session:
             headers = {
@@ -128,31 +121,13 @@ async def hey(interaction: discord.Interaction, message: str):
         print(f"Erreur lors de l'appel à l'API Mistral : {e}")
         response_text = "Oups, une erreur est survenue en contactant Mistral."
 
-    # Envoyer la réponse dans le même canal
     await interaction.followup.send(response_text)
 
-    # Ajouter une réaction emoji aléatoire au message original
     try:
         original_message = await interaction.original_response()
         await original_message.add_reaction(random.choice(EMOJIS))
     except Exception as e:
         print(f"Erreur lors de l'ajout de la réaction : {e}")
-
-# === Gestion du bouton concours (désactivée pour l'instant) ===
-# @bot.event
-# async def on_interaction(interaction: discord.Interaction):
-#     if interaction.type == discord.InteractionType.component:
-#         if interaction.data.get("custom_id") == "bouton_concours":
-#             await interaction.response.send_message(
-#                 "**🔥 Le Concours Kanaé - C'est quoi le délire ?**\n\n"
-#                 "🌿 Ici, chaque photo que tu postes dans les salons chill (genre `#ta-batte`, `#ton-chocolat`, `#ton-spot`, etc.), ça te fait **gagner des points**.\n"
-#                 "💬 Chaque message, chaque partage dans la vibe, ça compte aussi (1 point).\n"
-#                 "📸 Une photo bien sentie dans les salons spéciaux ? Bim, **+15 points**.\n\n"
-#                 "**🎁 Chaque mois, le boss du classement reçoit le rôle exclusif `Poumons d'Or` et des récompenses spéciales !**\n"
-#                 "🌿 Pas de pression, c'est juste pour le fun et pour faire tourner la vibe.\n\n"
-#                 "Allez, fais péter ta vibe et montre-nous ce que t'as ! 💨✨",
-#                 ephemeral=True
-#             )
 
 # === News : Récupération et envoi RSS ===
 async def fetch_and_send_news():
@@ -200,3 +175,10 @@ async def fetch_and_send_news():
         print("⏳ Attente de 3 heures avant la prochaine vérification...")
         await asyncio.sleep(3 * 3600)  # 3 heures
 
+# === Lancement du bot ===
+async def main():
+    async with bot:
+        bot.loop.create_task(fetch_and_send_news())
+        await bot.start(TOKEN)
+
+asyncio.run(main())
