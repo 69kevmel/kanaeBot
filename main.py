@@ -12,6 +12,7 @@ from discord import app_commands
 # === CONFIGURATION ===
 TOKEN = os.getenv('TOKEN')  # Ton token Discord
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')  # Clé API Mistral
+AGENT_ID_MISTRAL = os.getenv('AGENT_ID_MISTRAL')
 NEWS_CHANNEL_ID = 1377605635365011496  # Salon des news
 CHANNEL_REGLES_ID = 1372288019977212017
 CHANNEL_PRESENTE_TOI_ID = 1372288185299636224
@@ -112,7 +113,7 @@ async def hey(interaction: discord.Interaction, message: str):
             }
             payload = {
                 "prompt": message,
-                "agent_id": "ag:6f9af30d:20250531:untitled-agent:d623bf33"
+                "agent_id": AGENT_ID_MISTRAL
             }
             async with session.post("https://api.mistral.ai/v1/generate", headers=headers, json=payload) as resp:
                 if resp.status == 200:
@@ -196,6 +197,3 @@ async def fetch_and_send_news():
         print("⏳ Attente de 3 heures avant la prochaine vérification...")
         await asyncio.sleep(3 * 3600)  # 3 heures
 
-# === Ready ===
-::contentReference[oaicite:17]{index=17}
- 
