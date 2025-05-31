@@ -58,15 +58,17 @@ async def on_member_join(member):
 
         message = (
             f"🌿 Yo {member.name} ! Bienvenue dans le cercle **{member.guild.name}**.\n\n"
-            "Ici, ça chill, ça partage, et ça kiffe. **0 pression**.\n"
-            "Que tu sois là pour montrer ta dernière **batte**, ton **matos**, ou juste pour papoter, **t'es chez toi**.\n\n"
-            "Avant de te lancer, check les règles et **présente-toi** (Montre qui t'es, en fait) !\n\n"
-            "Ensuite, n'hésite pas à découvrir les autres salons et à te balader.\n\n"
-            "**(Discret ? Si tu veux changer ton pseudo, clique droit sur ton profil à droite et choisis 'Changer le pseudo')**\n\n"
+            "Ici, ça chill, ça partage, et ça kiffe. **0 pression**. 😎\n"
+            "Que tu sois là pour montrer ta dernière **batte** 🌿, ton **matos** 🔥, ou juste pour papoter 💬, **t'es chez toi**.\n\n"
+            "Avant de te lancer, check les règles 📜 et **présente-toi** 🙋 (Montre qui t'es, en fait).\n\n"
+            "Ensuite, n'hésite pas à découvrir les autres salons et à te balader 🚀.\n\n"
+            "**(👻 Discret ? Si tu veux changer ton pseudo, clique droit sur ton profil à droite et choisis 'Changer le pseudo')**\n\n"
             "Quelques commandes utiles :\n"
-            "**/play** {nom de la musique} - Pour écouter de la musique dans le channel **KanaéMUSIC**\n\n"
-            "👉 Clique sur les boutons ci-dessous pour bien t'installer sur le serveur !"
+            "   ➡️ **/play** {nom de la musique} - Pour écouter de la musique dans le channel **KanaéMUSIC** 🎶\n"
+            "   ➡️ **/hey** {message} - Pour parler avec l'**IA officielle** de **Kanaé** 🤖\n\n"
+            "👉 Clique sur les boutons ci-dessous pour bien t'installer sur le serveur ! 🌿🔥"
         )
+
 
         await member.send(content=message, view=view)
         print(f"✅ MP de bienvenue envoyé à {member.name}")
@@ -115,7 +117,7 @@ async def hey(interaction: discord.Interaction, message: str):
                 "prompt": message,
                 "agent_id": AGENT_ID_MISTRAL
             }
-            async with session.post("https://api.mistral.ai/v1/generate", headers=headers, json=payload) as resp:
+            async with session.post("https://api.mistral.ai/v1/chat/completions", headers=headers, json=payload) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     response_text = data.get("response", "Désolé, je n'ai pas compris.")
@@ -125,7 +127,7 @@ async def hey(interaction: discord.Interaction, message: str):
         print(f"Erreur lors de l'appel à l'API Mistral : {e}")
         response_text = "Oups, une erreur est survenue en contactant Mistral."
 
-    await interaction.followup.send(response_text)
+    await interaction.followup.send(response_text, ephemeral=True)
 
     try:
         original_message = await interaction.original_response()
