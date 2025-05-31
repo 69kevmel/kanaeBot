@@ -13,6 +13,7 @@ from discord import app_commands
 TOKEN = os.getenv('TOKEN')  # Ton token Discord
 MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')  # Clé API Mistral
 AGENT_ID_MISTRAL = os.getenv('AGENT_ID_MISTRAL')  # Agent ID Mistral
+
 NEWS_CHANNEL_ID = 1377605635365011496  # Salon des news
 CHANNEL_REGLES_ID = 1372288019977212017
 CHANNEL_PRESENTE_TOI_ID = 1372288185299636224
@@ -34,19 +35,23 @@ intents.dm_messages = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 sent_links = set()
-user_dm_counts = {}  # Dictionnaire pour compter les messages DM des users
+user_dm_counts = {}
 
 # === Bot Ready ===
 @bot.event
 async def on_ready():
     print(f"✅ KanaéBot prêt à diffuser la vibe en tant que {bot.user}")
+    try:
+        synced = await bot.tree.sync()
+        print(f"✅ Commandes slash synchronisées ({len(synced)} commandes)")
+    except Exception as e:
+        print(f"❗ Erreur lors de la sync des commandes : {e}")
 
 # === MP de bienvenue ===
 @bot.event
 async def on_member_join(member):
     try:
         view = discord.ui.View()
-
         view.add_item(discord.ui.Button(label="📜 Règlement", style=discord.ButtonStyle.link, url=f"https://discord.com/channels/{member.guild.id}/{CHANNEL_REGLES_ID}"))
         view.add_item(discord.ui.Button(label="🙋 Présente-toi", style=discord.ButtonStyle.link, url=f"https://discord.com/channels/{member.guild.id}/{CHANNEL_PRESENTE_TOI_ID}"))
         view.add_item(discord.ui.Button(label="🌿 Montre ta batte", style=discord.ButtonStyle.link, url=f"https://discord.com/channels/{member.guild.id}/{CHANNEL_MONTRE_TA_BATTE_ID}"))
@@ -69,7 +74,7 @@ async def on_member_join(member):
     except Exception as e:
         print(f"❗ Erreur lors de l'envoi du MP : {e}")
 
-# === Log et réponses aux messages en DM ===
+# === Réponses aux DM ===
 @bot.event
 async def on_message(message):
     if isinstance(message.channel, discord.DMChannel) and not message.author.bot:
@@ -100,7 +105,6 @@ async def on_message(message):
 async def hey(interaction: discord.Interaction, message: str):
     await interaction.response.defer()
 
-    # Appel à l'API Mistral
     try:
         async with aiohttp.ClientSession() as session:
             headers = {
@@ -173,7 +177,7 @@ async def fetch_and_send_news():
             print("❗ Aucune nouvelle à publier cette fois-ci.")
 
         print("⏳ Attente de 3 heures avant la prochaine vérification...")
-        await asyncio.sleep(3 * 3600)  # 3 heures
+        await asyncio.sleep(3 * 3600)
 
 # === Lancement du bot ===
 async def main():
