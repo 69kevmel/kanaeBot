@@ -115,17 +115,18 @@ async def hey(interaction: discord.Interaction, message: str):
             }
             payload = {
                 "prompt": message,
-                "agent_id": AGENT_ID_MISTRAL
+                "agent_id": AGENT_ID_MISTRAL,
+                "max_tokens": 400
             }
             async with session.post("https://api.mistral.ai/v1/chat/completions", headers=headers, json=payload) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    response_text = data.get("response", "Désolé, je n'ai pas compris.")
+                    response_text = data.get("response", "Désolé, j'ai pas compris frérot'.")
                 else:
-                    response_text = "Oups, une erreur est survenue en contactant Mistral."
+                    response_text = "Votre correspondant est actuellement injoignable."
     except Exception as e:
         print(f"Erreur lors de l'appel à l'API Mistral : {e}")
-        response_text = "Oups, une erreur est survenue en contactant Mistral."
+        response_text = "Votre correspondant est actuellement injoignable."
 
     await interaction.followup.send(response_text, ephemeral=True)
 
