@@ -6,6 +6,7 @@ import asyncio
 import aiohttp
 import discord
 import aiomysql
+import urllib.parse
 from discord.ext import tasks, commands
 from datetime import datetime, date, timedelta, timezone
 from discord import app_commands
@@ -41,12 +42,24 @@ SPECIAL_CHANNEL_IDS = {
     1372288825308610750: 15
 }
 
-# MySQL connexion params (à définir dans l'environnement)
-MYSQLHOST = os.getenv('MYSQLHOST', 'localhost')
-MYSQLPORT = int(os.getenv('MYSQLPORT', 3306))
-MYSQLUSER = os.getenv('MYSQLUSER', 'root')
-MYSQLPASSWORD = os.getenv('MYSQLPASSWORD', '')
-MYSQLDATABASE = os.getenv('MYSQLDATABASE', 'kanaebot')
+DATABASE_URL = os.getenv('MYSQL_URL')
+
+if DATABASE_URL:
+    # Exemple de DATABASE_URL : "mysql://alice:secret123@b3ef01-foobar-1.railway.app:5432/kanaedb"
+    url = urllib.parse.urlparse(DATABASE_URL)
+    MYSQLUSER     = url.username                # "alice"
+    MYSQLPASSWORD = url.password                # "secret123"
+    MYSQLHOST     = url.hostname                # "b3ef01-foobar-1.railway.app"
+    MYSQLPORT     = url.port                    # 5432 (type int)
+    MYSQLDATABASE = url.path.lstrip('/')        # "kanaedb" (on enlève le "/" au début)
+else:
+    # Si tu exécutes en local (ou n’as pas défini MYSQL_URL),
+    # on retombe sur la méthode « classique » avec plusieurs variables séparées :
+    MYSQLHOST     = os.getenv('MYSQLHOST', 'localhost')
+    MYSQLPORT     = int(os.getenv('MYSQLPORT', 3306))
+    MYSQLUSER     = os.getenv('MYSQLUSER', 'root')
+    MYSQLPASSWORD = os.getenv('MYSQLPASSWORD', '')
+    MYSQLDATABASE = os.getenv('MYSQLDATABASE', 'kanaebot')
 
 # Variables en mémoire
 voice_times = {}        # { user_id: accumulated_seconds }
@@ -67,9 +80,6 @@ user_dm_counts = {}
 # === UTILITAIRES BASE DE DONNÉES ===
 
 async def init_db_pool():
-    """
-    Initialise le pool de connexions MySQL.
-    """
     return await aiomysql.create_pool(
         host=MYSQLHOST,
         port=MYSQLPORT,
