@@ -240,10 +240,10 @@ class InfosConcoursButton(discord.ui.View):
             "👉 **Gagne des points en passant du temps en vocal :**\n"
             "   • 🎙️ 1 point toutes les 30 minutes\n\n"
             "👉 **Gagne des points avec les réactions :**\n"
-            "   • ✨ 1 point par émoji sur ton message (1 émoji max par membre et par message)\n\n"
+            "   • ✨ 2 points par émoji reçu sur ton message (1 émoji max par membre et par message)\n\n"
             "👉 **Bonus Parrainage :**\n"
-            "   • 🔗 25 points quand quelqu'un rejoint via ton lien d'invitation\n\n"
-            "🎯 **Les paliers à atteindre :**\n"
+            "   • 🔗 100 points si le nouveau membre reste **au moins 2 heures** sur le serveur\n\n"
+                "🎯 **Les paliers à atteindre :**\n"
             "   • 🥉 10 points ➔ Bravo frérot !\n"
             "   • 🥈 50 points ➔ Respect, t'es chaud !\n"
             "   • 🏆 100 points ➔ Légende vivante !\n\n"
@@ -255,7 +255,7 @@ class InfosConcoursButton(discord.ui.View):
 # === MP de bienvenue & Parrainage ===
 @bot.event
 async def on_member_join(member):
-    # Attribution des points d'affiliation (25 pts)
+    # 1️⃣ On commence par détecter l’inviteur, comme avant
     try:
         guild = member.guild
         invites_before = invite_cache.get(guild.id, [])
@@ -270,21 +270,35 @@ async def on_member_join(member):
             if used_invite:
                 break
 
-        invite_cache[guild.id] = invites_after  # Mise à jour du cache
+        invite_cache[guild.id] = invites_after  # Mettre à jour le cache
 
         if used_invite and used_invite.inviter:
-            inviter_id = str(used_invite.inviter.id)
-            new_total = await add_points(db_pool, inviter_id, 25)
-            try:
-                await used_invite.inviter.send(
-                    f"🎉 Bravo frérot ! Tu viens de gagner **+25 points** grâce à ton lien d'invitation. Total : {new_total} points. Continue comme ça 🚀"
-                )
-            except:
-                print(f"❗ Impossible d'envoyer le message d'affiliation à {used_invite.inviter.display_name}.")
-    except Exception as e:
-        print(f"❗ Erreur lors de l'attribution des points d'affiliation : {e}")
+            inviter = used_invite.inviter
+            inviter_id = str(inviter.id)
 
-    # Envoi du MP de bienvenue
+            # 🚀 On planifie une tâche pour attendre 2h (7200 s) avant
+            #    d’attribuer les points à l’inviteur, à condition que le membre
+            #    soit toujours présent dans le serveur.
+            async def award_after_2h():
+                await asyncio.sleep(7200)  # 2 heures en secondes
+                # On vérifie que le membre n’a pas quitté entre-temps
+                if member.id in [m.id for m in guild.members]:
+                    try:
+                        new_total = await add_points(db_pool, inviter_id, 100)
+                        await inviter.send(
+                            f"🎉 Bravo frérot ! +100 points pour ton parrainage de `{member.name}`, il est resté 2 h sur le serveur ! "
+                            f"Total : {new_total} points. Continue comme ça 🚀"
+                        )
+                    except Exception as e:
+                        print(f"❗ Impossible d’envoyer le MP d’affiliation à {inviter.display_name} : {e}")
+
+            # On lance la coroutine en tâche de fond (pas de await ici)
+            asyncio.create_task(award_after_2h())
+
+    except Exception as e:
+        print(f"❗ Erreur lors de la détection ou planification du parrainage : {e}")
+
+    # 2️⃣ Ensuite, on envoie le MP de bienvenue (inchangé)
     try:
         view = InfosConcoursButton()
         view.add_item(discord.ui.Button(
@@ -319,6 +333,7 @@ async def on_member_join(member):
         print(f"✅ MP de bienvenue envoyé à {member.name}")
     except Exception as e:
         print(f"❗ Erreur lors de l'envoi du MP : {e}")
+
 
 # === Réponses aux DM ===
 @bot.event
@@ -399,8 +414,8 @@ async def on_reaction_add(reaction, user):
     # Marquer la réaction comme comptée
     await set_reaction_counted(db_pool, message.id, reactor_id)
 
-    # Donner 1 point à l'auteur du message
-    new_total = await add_points(db_pool, author_id, 1)
+    # 🔥 Ici, on passe de 1 à 2 points par émoji reçu
+    new_total = await add_points(db_pool, author_id, 2)
 
     # Vérifier palier
     if new_total in [10, 50, 100]:
@@ -491,12 +506,22 @@ async def launch_concours(interaction: discord.Interaction):
         return
 
     content = (
-        "🔥 **Le concours est officiellement lancé !** 🔥\n\n"
-        "🔹 Postez vos photos dans les salons « montre ton ».\n"
-        "🔹 Chaque semaine, on fera un top 3.\n"
-        "🔹 Les paliers (10, 50, 100 points) vous rapportent des cadeaux mystères !\n"
-        "🔹 Restez branchés, et surtout, kiffez !"
+    "🔥 **Le concours Kanaé est officiellement lancé !** 🔥\n\n"
+    "📸 **Postez vos photos dans les salons « montre ton ».**\n"
+    "   • 15 points par image (1 fois par jour par salon) 🌿📷\n\n"
+    "🎙️ **Restez en vocal pour gagner des points !**\n"
+    "   • 1 point toutes les 30 minutes passées en salon vocal 🎧⏳\n\n"
+    "✨ **Faites-vous liker !**\n"
+    "   • 2 point par émoji laissé par un autre membre sur votre message ✨👍\n"
+    "     (1 émoji max par membre et par message) 👀\n\n"
+    "🔗 **Parrainez vos potes !**\n"
+    "   • 100 points si le nouveau membre reste **au moins 2 heures** sur le serveur 🔗🚀\n\n"
+    "🏆 **Chaque semaine, on fera un Top 3 !**\n"
+    "   • Classement hebdo 📈\n\n"
+    "💰 **Ce mois-ci, le grand gagnant recevra chez lui 25 € de matos (feuilles, briquet, grinder, etc) !** 🎉💵\n\n"
+    "🌟 **Restez branchés, et surtout, kiffez !** 🌺🌀"
     )
+
     await channel.send(content)
     await interaction.response.send_message("✅ Concours lancé !", ephemeral=True)
 
@@ -509,19 +534,24 @@ async def presentation_concours(interaction: discord.Interaction):
         return
 
     content = (
-        "📜 **Présentation du Concours Kanaé :**\n\n"
-        "Bienvenue à tous ! Voici les règles du jeu :\n"
-        "1. **Postez une photo** dans l'un des salons « montre ton ».\n"
-        "   • 15 points par jour et par salon.\n"
-        "2. **Restez en vocal** pour gagner des points : 1 point toutes les 30 minutes.\n"
-        "3. **Réactions** : chaque émoji laissé par un autre membre sur votre message = 1 point (1 émoji max par membre et par message).\n"
-        "4. **Parrainage** : +25 points à chaque nouveau membre qui rejoint via votre lien d’invite.\n\n"
-        "🏆 **Palier des points :** 10, 50, 100 → Messages de récompense en MP.\n"
-        "📆 **Récap chaque lundi à 15h (Top 3) dans ce channel**.\n"
-        "🔔 **Boost mental** juste avant la fin (/pre-end).\n"
-        "📢 **Fin du concours** (/end-concours).\n\n"
-        "Bonne chance à tous, restez chill, et amusez-vous ! 🌿😎"
+    "📜 **Présentation du Concours Kanaé :**\n\n"
+    "Bienvenue à tous ! Voici les règles du jeu :\n"
+    "1. **Postez une photo** dans l'un des salons « montre ton ».\n"
+    "   • **15 points par jour** et par salon. (maximum 1 photo par salon, par jour et par fumeur) 📸🌿\n\n"
+    "2. **Restez en vocal** pour gagner des points : **1 point toutes les 30 minutes**. 🎙️⏳\n\n"
+    "3. **Réactions** : chaque émoji laissé par un autre membre sur votre message = **2 points** ✨👍\n"
+    "   (1 émoji max par membre et par message) 👀\n\n"
+    "4. **Parrainage** : **+100 points** si le nouveau membre reste **au moins 2 heures** sur le serveur 🔗🚀\n\n"
+    "🏆 **Les gains ?** Suffit d'être premier et ce mois-ci tu gagneras **25 € de matos de fume** (feuille, grinder, etc.) ! 💰🎉\n"
+    "🥇 **C'est tout ?** Ah et bien sûr vous aurez le rôle le plus convoité du serveur aka **Kanaé d’or** ! 🌟🏅\n"
+    "📆 **Récap chaque lundi à 15 h du Top 3 dans ce channel**. 📊🗓️\n"
+    "📢 **Fin du concours** le 1er juillet 2025. ⏰🚩\n\n"
+    "Bonne chance à tous, restez chill, et amusez-vous ! 🌿😎\n\n"
+    "🔧 **Commandes utiles à connaître :**\n"
+    "   • `/score` : Affiche TON score et ton rang actuel. 📈🔒\n"
+    "   • `/top-5` : Affiche le Top 5 des meilleurs fumeurs du concours. 🏆✉️\n"
     )
+
     await channel.send(content)
     await interaction.response.send_message("✅ Présentation du concours postée !", ephemeral=True)
 
@@ -535,7 +565,7 @@ async def pre_end(interaction: discord.Interaction):
 
     content = (
         "⚡ **Attention, il ne reste que quelques heures avant la fin du concours !** ⚡\n"
-        "Donnez tout ce qui vous reste, postez vos meilleures vibes, et préparez-vous pour le décompte final ! 🌿🔥"
+        "Donnez tout ce qui vous reste, postez vos meilleures photos, et préparez-vous pour le décompte final ! 🌿🔥"
     )
     await channel.send(content)
     await interaction.response.send_message("✅ Message de pré-fin envoyé !", ephemeral=True)
@@ -567,7 +597,7 @@ async def weekly_recap():
         channel = bot.get_channel(HALL_OF_FLAMME_CHANNEL_ID)
         if channel:
             top_rows = await get_top_n(db_pool, n=3)
-            msg = "📊 **Classement hebdo (Top 3) :**\n"
+            msg = "📊🌿 **Classement hebdo des meilleurs fumeurs (Top 3) :**\n"
             for i, (user_id, points) in enumerate(top_rows, 1):
                 user = await bot.fetch_user(int(user_id))
                 msg += f"{i}. {user.display_name} ({points} pts)\n"
