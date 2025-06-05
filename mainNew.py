@@ -55,11 +55,11 @@ if DATABASE_URL:
 else:
     # Si tu exécutes en local (ou n’as pas défini MYSQL_URL),
     # on retombe sur la méthode « classique » avec plusieurs variables séparées :
-    MYSQLHOST     = os.getenv('MYSQLHOST', 'localhost')
-    MYSQLPORT     = int(os.getenv('MYSQLPORT', 3306))
-    MYSQLUSER     = os.getenv('MYSQLUSER', 'root')
-    MYSQLPASSWORD = os.getenv('MYSQLPASSWORD', '')
-    MYSQLDATABASE = os.getenv('MYSQLDATABASE', 'kanaebot')
+    MYSQLHOST     = os.getenv('MYSQLHOST')
+    MYSQLPORT     = int(os.getenv('MYSQLPORT'))
+    MYSQLUSER     = os.getenv('MYSQLUSER')
+    MYSQLPASSWORD = os.getenv('MYSQLPASSWORD')
+    MYSQLDATABASE = os.getenv('MYSQLDATABASE')
 
 # Variables en mémoire
 voice_times = {}        # { user_id: accumulated_seconds }
