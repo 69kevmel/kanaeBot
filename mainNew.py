@@ -697,6 +697,10 @@ async def update_voice_points():
 
 # === News : Récupération et envoi RSS ===
 async def fetch_and_send_news():
+    # Attendre que db_pool soit prêt
+    while db_pool is None:
+        await asyncio.sleep(1)
+
     await bot.wait_until_ready()
     channel = bot.get_channel(NEWS_CHANNEL_ID)
 
@@ -707,7 +711,6 @@ async def fetch_and_send_news():
     print(f"✅ Salon des news trouvé : {channel}")
 
     while True:
-        # On prend la date actuelle (UTC) et convertit en date (YYYY-MM-DD)
         now = datetime.now(timezone.utc)
         today = now.date()
 
@@ -722,22 +725,22 @@ async def fetch_and_send_news():
                     continue
 
                 entry_date = date(published.tm_year, published.tm_mon, published.tm_mday)
-                # On ne veut que celles du jour
                 if entry_date != today:
                     continue
 
                 link = entry.link
-                # On vérifie maintenant en base si le lien a déjà été envoyé
+                # Vérifier en base si le lien a déjà été envoyé
                 if not await has_sent_news(db_pool, link):
                     all_entries.append(entry)
 
         if all_entries:
-            # On choisit aléatoirement une news parmi celles non envoyées
             entry = random.choice(all_entries)
             link = entry.link
-            published_date = date(entry.published_parsed.tm_year,
-                                  entry.published_parsed.tm_mon,
-                                  entry.published_parsed.tm_mday)
+            published_date = date(
+                entry.published_parsed.tm_year,
+                entry.published_parsed.tm_mon,
+                entry.published_parsed.tm_mday
+            )
 
             message = (
                 f"🌿 **Nouvelles fraîches de la journée !** 🌿\n"
@@ -746,17 +749,17 @@ async def fetch_and_send_news():
                 f"🗓️ Publié le : {published_date}"
             )
 
-            # On envoie dans le channel
             await channel.send(message)
             print(f"✅ News postée : {entry.title}")
 
-            # On marque en base que cette news a été envoyée (avec la date d’aujourd’hui)
+            # Marquer la news en base
             await mark_news_sent(db_pool, link, today)
         else:
             print("❗ Aucune nouvelle à publier cette fois-ci.")
 
         print("⏳ Attente de 3 heures avant la prochaine vérification...")
         await asyncio.sleep(3 * 3600)
+
 
 
 # === Lancement du bot et des tâches ===
