@@ -23,6 +23,7 @@ CHANNEL_MONTRE_TA_BATTE_ID = 1372310203227312291  # Salon Montre ta batte
 MOD_LOG_CHANNEL_ID = 1372328694739107880    # Salon mod-log
 CONCOURS_CHANNEL_ID = 1372289319984693328   # Salon Concours
 HALL_OF_FLAMME_CHANNEL_ID = CONCOURS_CHANNEL_ID  # Même salon que CONCOURS_CHANNEL_ID
+BLABLA_CHANNEL_ID = 1372542107864272918  # Salon Blabla
 
 RSS_FEEDS = [
     'https://www.newsweed.fr/feed/',
@@ -500,30 +501,41 @@ async def top_5(interaction: discord.Interaction):
 # === Commande slash /launch-concours ===
 @bot.tree.command(name="launch-concours", description="Lance officiellement un concours")
 async def launch_concours(interaction: discord.Interaction):
-    channel = bot.get_channel(HALL_OF_FLAMME_CHANNEL_ID)
-    if not channel:
-        await interaction.response.send_message("❗ Le channel 'hall-of-flamme' est introuvable.", ephemeral=True)
+    channel_to_post = bot.get_channel(BLABLA_CHANNEL_ID)
+    if not channel_to_post:
+        await interaction.response.send_message("❗ Le channel ‘blabla’ est introuvable.", ephemeral=True)
         return
 
+    # Créer un bouton qui redirige vers le salon « hall-of-flamme »
+    view = discord.ui.View(timeout=None)
+    view.add_item(discord.ui.Button(
+        label="🏟️ Aller au Hall of Flamme",
+        style=discord.ButtonStyle.link,
+        url=f"https://discord.com/channels/{interaction.guild.id}/{HALL_OF_FLAMME_CHANNEL_ID}"
+    ))
+
     content = (
-    "🔥 **Le concours Kanaé est officiellement lancé !** 🔥\n\n"
-    "📸 **Postez vos photos dans les salons « montre ton ».**\n"
-    "   • 15 points par image (1 fois par jour par salon) 🌿📷\n\n"
-    "🎙️ **Restez en vocal pour gagner des points !**\n"
-    "   • 1 point toutes les 30 minutes passées en salon vocal 🎧⏳\n\n"
-    "✨ **Faites-vous liker !**\n"
-    "   • 2 point par émoji laissé par un autre membre sur votre message ✨👍\n"
-    "     (1 émoji max par membre et par message) 👀\n\n"
-    "🔗 **Parrainez vos potes !**\n"
-    "   • 100 points si le nouveau membre reste **au moins 2 heures** sur le serveur 🔗🚀\n\n"
-    "🏆 **Chaque semaine, on fera un Top 3 !**\n"
-    "   • Classement hebdo 📈\n\n"
-    "💰 **Ce mois-ci, le grand gagnant recevra chez lui 25 € de matos (feuilles, briquet, grinder, etc) !** 🎉💵\n\n"
-    "🌟 **Restez branchés, et surtout, kiffez !** 🌺🌀"
+        "🔥 **Le concours Kanaé est officiellement lancé !** 🔥\n\n"
+        "📸 **Postez vos photos dans les salons « montre ton ».**\n"
+        "   • 15 points par image (1 fois par jour par salon) 🌿📷\n\n"
+        "🎙️ **Restez en vocal pour gagner des points !**\n"
+        "   • 1 point toutes les 30 minutes passées en salon vocal 🎧⏳\n\n"
+        "✨ **Faites-vous liker !**\n"
+        "   • 2 points par émoji laissé par un autre membre sur votre message ✨👍\n"
+        "     (1 émoji max par membre et par message) 👀\n\n"
+        "🔗 **Parrainez vos potes !**\n"
+        "   • 100 points si le nouveau membre reste **au moins 2 heures** sur le serveur 🔗🚀\n\n"
+        "🏆 **Chaque semaine, on fera un Top 3 !**\n"
+        "   • Classement hebdo 📈\n\n"
+        "💰 **Ce mois-ci, le grand gagnant recevra chez lui 25 € de matos (feuilles, briquet, grinder, etc.) !** 🎉💵\n\n"
+        "🌟 **Restez branchés, et surtout, kiffez !** 🌺🌀\n"
+        "@everyone, c’est parti pour le concours Kanaé !\n\n"
+        "👉 Clique sur **« Aller au Hall of Flamme »** ci-dessous pour suivre le classement en temps réel ! 🔥"
     )
 
-    await channel.send(content)
-    await interaction.response.send_message("✅ Concours lancé !", ephemeral=True)
+    await channel_to_post.send(content, view=view)
+    await interaction.response.send_message("✅ Concours lancé dans #blabla !", ephemeral=True)
+
 
 # === Commande slash /présentation-concours ===
 @bot.tree.command(name="présentation-concours", description="Présente les règles du concours")
@@ -550,6 +562,7 @@ async def presentation_concours(interaction: discord.Interaction):
     "🔧 **Commandes utiles à connaître :**\n"
     "   • `/score` : Affiche TON score et ton rang actuel. 📈🔒\n"
     "   • `/top-5` : Affiche le Top 5 des meilleurs fumeurs du concours. 🏆✉️\n"
+    "@everyone, c'est parti !"
     )
 
     await channel.send(content)
@@ -565,7 +578,8 @@ async def pre_end(interaction: discord.Interaction):
 
     content = (
         "⚡ **Attention, il ne reste que quelques heures avant la fin du concours !** ⚡\n"
-        "Donnez tout ce qui vous reste, postez vos meilleures photos, et préparez-vous pour le décompte final ! 🌿🔥"
+        "Donnez tout ce qui vous reste, postez vos meilleures photos, et préparez-vous pour le décompte final ! 🌿🔥\n"
+        "@everyone, c'est le moment de briller !\n\n"
     )
     await channel.send(content)
     await interaction.response.send_message("✅ Message de pré-fin envoyé !", ephemeral=True)
@@ -583,7 +597,7 @@ async def end_concours(interaction: discord.Interaction):
     for i, (user_id, points) in enumerate(top_rows, 1):
         user = await bot.fetch_user(int(user_id))
         content += f"{i}. {user.display_name} ({points} pts)\n"
-    content += "\nFélicitations aux gagnants et merci à tous d'avoir participé ! 🎉"
+    content += "\nFélicitations aux gagnants et merci à tous d'avoir participé ! 🎉\n@everyone"
 
     await channel.send(content)
     await interaction.response.send_message("✅ Concours terminé et résultats postés !", ephemeral=True)
@@ -597,7 +611,7 @@ async def weekly_recap():
         channel = bot.get_channel(HALL_OF_FLAMME_CHANNEL_ID)
         if channel:
             top_rows = await get_top_n(db_pool, n=3)
-            msg = "📊🌿 **Classement hebdo des meilleurs fumeurs (Top 3) :**\n"
+            msg = "📊🌿 @everyone **Classement hebdo des meilleurs fumeurs (Top 3) :**\n"
             for i, (user_id, points) in enumerate(top_rows, 1):
                 user = await bot.fetch_user(int(user_id))
                 msg += f"{i}. {user.display_name} ({points} pts)\n"
