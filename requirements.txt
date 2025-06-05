@@ -1,4 +1,4 @@
-discord.py
-feedparser
-aiohttp
-python-dotenv
+discord.py>=1.7.3
+aiomysql>=0.0.21
+aiohttp>=3.8.0
+feedparser>=6.0.0
