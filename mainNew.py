@@ -42,7 +42,7 @@ SPECIAL_CHANNEL_IDS = {
     1372288825308610750: 15
 }
 
-DATABASE_URL = os.getenv('MYSQL_URL')
+DATABASE_URL = os.getenv('MYSQL_PUBLIC_URL')
 
 if DATABASE_URL:
     # Exemple de DATABASE_URL : "mysql://alice:secret123@b3ef01-foobar-1.railway.app:5432/kanaedb"
@@ -310,8 +310,8 @@ async def on_member_join(member):
             "Quelques commandes utiles :\n"
             "   ➡️ **/play** {nom de la musique} - Pour écouter de la musique dans le channel **KanaéMUSIC** 🎶\n"
             "   ➡️ **/hey** {message} - Pour parler avec l'**IA officielle** de **Kanaé** 🤖\n"
-            "   ➡️ **/score** - Pour voir **ta place** dans le concours de **Kanaé** 🎖️ (uniquement pour toi)\n"
-            "   ➡️ **/top-5** - Pour voir les **5 plus gros fumeurs** du concours de **Kanaé** 🏆 (uniquement pour toi)\n\n"
+            "   ➡️ **/score** - Pour voir **ta place** dans le concours de **Kanaé** 🎖️\n"
+            "   ➡️ **/top-5** - Pour voir les **5 plus gros fumeurs** du concours de **Kanaé** 🏆\n\n"
             "👉 Clique sur les boutons ci-dessous pour bien t'installer sur le serveur ! 🌿🔥"
         )
 
