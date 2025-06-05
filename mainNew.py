@@ -290,14 +290,18 @@ async def on_ready():
 class InfosConcoursButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(discord.ui.Button(label="ℹ️ Infos Concours", custom_id="infos_concours"))
+        # → on retire la ligne self.add_item(...) qui doublonnait l’ID
 
-    @discord.ui.button(label="ℹ️ Infos Concours", style=discord.ButtonStyle.primary, custom_id="infos_concours")
+    @discord.ui.button(
+        label="ℹ️ Infos Concours",
+        style=discord.ButtonStyle.primary,
+        custom_id="infos_concours"
+    )
     async def concours_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         message = (
             "🌿 **Le Concours Kanaé :**\n\n"
-            "👉 **Gagne des points en postant des photos ou vidéos dans les salons spéciaux :**\n"
-            "   • 📸 15 points par média (1 fois par jour par salon)\n\n"
+            "👉 **Gagne des points en postant des photos dans les salons spéciaux :**\n"
+            "   • 📸 15 points par image (1 fois par jour par salon)\n\n"
             "👉 **Gagne des points en passant du temps en vocal :**\n"
             "   • 🎙️ 1 point toutes les 30 minutes\n\n"
             "👉 **Gagne des points avec les réactions :**\n"
@@ -312,6 +316,7 @@ class InfosConcoursButton(discord.ui.View):
             "🔥 Viens chiller, poster et papoter, et deviens le **Kanaé d'Or** de la commu !"
         )
         await interaction.response.send_message(message, ephemeral=True)
+
 
 # === MP de bienvenue & Parrainage ===
 @bot.event
