@@ -127,7 +127,7 @@ async def ensure_tables(pool):
             # Table news_history
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS news_history (
-                    link TEXT PRIMARY KEY,
+                    link VARCHAR(2048) PRIMARY KEY,
                     date DATE NOT NULL
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
             """)
