@@ -96,15 +96,18 @@ async def ensure_tables(pool):
     - scores(user_id BIGINT PRIMARY KEY, points INT)
     - daily_limits(user_id BIGINT, channel_id BIGINT, date DATE, PRIMARY KEY(user_id, channel_id, date))
     - reaction_tracker(message_id BIGINT, reactor_id BIGINT, PRIMARY KEY(message_id, reactor_id))
+    - news_history(link TEXT PRIMARY KEY, date DATE)
     """
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
+            # Table scores
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS scores (
                     user_id BIGINT PRIMARY KEY,
                     points INT NOT NULL
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
             """)
+            # Table daily_limits
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS daily_limits (
                     user_id BIGINT NOT NULL,
@@ -113,11 +116,19 @@ async def ensure_tables(pool):
                     PRIMARY KEY(user_id, channel_id, date)
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
             """)
+            # Table reaction_tracker
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS reaction_tracker (
                     message_id BIGINT NOT NULL,
                     reactor_id BIGINT NOT NULL,
                     PRIMARY KEY(message_id, reactor_id)
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            """)
+            # Table news_history
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS news_history (
+                    link TEXT PRIMARY KEY,
+                    date DATE NOT NULL
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
             """)
 
@@ -368,14 +379,14 @@ async def on_message(message):
 
         # 15 points par image (1 fois par jour par salon) dans les salons « montre ton »
         if channel_id in SPECIAL_CHANNEL_IDS and message.attachments:
-            # Vérifier qu'au moins une pièce jointe est une image
-            has_image = any(
-                attachment.filename.lower().endswith((
-                    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff"
-                ))
+            image_extensions = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff")
+            video_extensions = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".flv", ".wmv")
+            has_media = any(
+                attachment.filename.lower().endswith(image_extensions + video_extensions)
                 for attachment in message.attachments
             )
-            if has_image:
+            if has_media:
+                # S'il n'y a pas encore eu de post ce jour dans ce salon pour cet utilisateur
                 if not await has_daily_limit(db_pool, user_id, channel_id, date_str):
                     # Enregistrer la limite journalière (éviter répétition)
                     await set_daily_limit(db_pool, user_id, channel_id, date_str)
@@ -602,6 +613,27 @@ async def end_concours(interaction: discord.Interaction):
     await channel.send(content)
     await interaction.response.send_message("✅ Concours terminé et résultats postés !", ephemeral=True)
 
+async def has_sent_news(pool, link):
+    """
+    Vérifie si le lien a déjà été envoyé (présent dans news_history).
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT 1 FROM news_history WHERE link=%s;", (link,))
+            return await cur.fetchone() is not None
+
+async def mark_news_sent(pool, link, date):
+    """
+    Insère le lien dans news_history (ignore s'il existe déjà).
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("""
+                INSERT IGNORE INTO news_history (link, date)
+                VALUES (%s, %s);
+            """, (link, date))
+
+
 # === Récap Hebdomadaire (Lundi 15h) ===
 @tasks.loop(minutes=1)
 async def weekly_recap():
@@ -675,7 +707,7 @@ async def fetch_and_send_news():
     print(f"✅ Salon des news trouvé : {channel}")
 
     while True:
-        # -- Remplacement de datetime.utcnow() par datetime.now(timezone.utc)
+        # On prend la date actuelle (UTC) et convertit en date (YYYY-MM-DD)
         now = datetime.now(timezone.utc)
         today = now.date()
 
@@ -686,31 +718,46 @@ async def fetch_and_send_news():
             feed = feedparser.parse(feed_url)
             for entry in feed.entries:
                 published = entry.get('published_parsed')
-                if published:
-                    # published.tm_year, tm_mon, tm_mday sont des ints
-                    # Utiliser directement la classe date pour construire un date
-                    entry_date = date(published.tm_year, published.tm_mon, published.tm_mday)
-                    if entry_date == today and entry.link not in sent_links:
-                        all_entries.append(entry)
+                if not published:
+                    continue
+
+                entry_date = date(published.tm_year, published.tm_mon, published.tm_mday)
+                # On ne veut que celles du jour
+                if entry_date != today:
+                    continue
+
+                link = entry.link
+                # On vérifie maintenant en base si le lien a déjà été envoyé
+                if not await has_sent_news(db_pool, link):
+                    all_entries.append(entry)
 
         if all_entries:
+            # On choisit aléatoirement une news parmi celles non envoyées
             entry = random.choice(all_entries)
-            sent_links.add(entry.link)
+            link = entry.link
+            published_date = date(entry.published_parsed.tm_year,
+                                  entry.published_parsed.tm_mon,
+                                  entry.published_parsed.tm_mday)
 
             message = (
                 f"🌿 **Nouvelles fraîches de la journée !** 🌿\n"
                 f"**{entry.title}**\n"
-                f"{entry.link}\n\n"
-                f"🗓️ Publié le : {date(entry.published_parsed.tm_year, entry.published_parsed.tm_mon, entry.published_parsed.tm_mday)}"
+                f"{link}\n\n"
+                f"🗓️ Publié le : {published_date}"
             )
 
+            # On envoie dans le channel
             await channel.send(message)
             print(f"✅ News postée : {entry.title}")
+
+            # On marque en base que cette news a été envoyée (avec la date d’aujourd’hui)
+            await mark_news_sent(db_pool, link, today)
         else:
             print("❗ Aucune nouvelle à publier cette fois-ci.")
 
         print("⏳ Attente de 3 heures avant la prochaine vérification...")
         await asyncio.sleep(3 * 3600)
+
 
 # === Lancement du bot et des tâches ===
 async def main():
