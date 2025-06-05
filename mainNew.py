@@ -7,7 +7,7 @@ import aiohttp
 import discord
 import aiomysql
 from discord.ext import tasks, commands
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta, timezone
 from discord import app_commands
 
 # === CONFIGURATION ===
@@ -608,7 +608,8 @@ async def fetch_and_send_news():
     print(f"✅ Salon des news trouvé : {channel}")
 
     while True:
-        now = datetime.utcnow()
+        # -- Remplacement de datetime.utcnow() par datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
         today = now.date()
 
         print(f"🔄 [{now.strftime('%Y-%m-%d %H:%M:%S')}] Vérification des news...")
@@ -619,11 +620,9 @@ async def fetch_and_send_news():
             for entry in feed.entries:
                 published = entry.get('published_parsed')
                 if published:
-                    entry_date = datetime.date(
-                        published.tm_year,
-                        published.tm_mon,
-                        published.tm_mday
-                    )
+                    # published.tm_year, tm_mon, tm_mday sont des ints
+                    # Utiliser directement la classe date pour construire un date
+                    entry_date = date(published.tm_year, published.tm_mon, published.tm_mday)
                     if entry_date == today and entry.link not in sent_links:
                         all_entries.append(entry)
 
@@ -635,7 +634,7 @@ async def fetch_and_send_news():
                 f"🌿 **Nouvelles fraîches de la journée !** 🌿\n"
                 f"**{entry.title}**\n"
                 f"{entry.link}\n\n"
-                f"🗓️ Publié le : {datetime.date(entry.published_parsed.tm_year, entry.published_parsed.tm_mon, entry.published_parsed.tm_mday)}"
+                f"🗓️ Publié le : {date(entry.published_parsed.tm_year, entry.published_parsed.tm_mon, entry.published_parsed.tm_mday)}"
             )
 
             await channel.send(message)
