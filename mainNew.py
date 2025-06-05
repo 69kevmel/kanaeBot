@@ -195,8 +195,21 @@ db_pool = None
 async def on_ready():
     global db_pool
     # Initialisation du pool et des tables
-    db_pool = await init_db_pool()
-    await ensure_tables(db_pool)
+    try:
+        db_pool = await init_db_pool()
+        print("✅ [DB] Pool MySQL initialisé et connecté avec succès.")
+    except Exception as e:
+        print(f"❌ [DB] Erreur lors de l'initialisation du pool MySQL : {e}")
+        return  # on stoppe si on n’a pas pu créer le pool
+
+    # 2. Création / vérification des tables
+    try:
+        await ensure_tables(db_pool)
+        print("✅ [DB] Les tables ont été vérifiées/créées avec succès.")
+    except Exception as e:
+        print(f"❌ [DB] Erreur lors de la création/vérification des tables : {e}")
+        return
+
 
     # Remplir le cache des invites pour chaque guild
     for guild in bot.guilds:
@@ -335,7 +348,7 @@ async def on_message(message):
     if not message.author.bot and isinstance(message.channel, discord.TextChannel):
         user_id = str(message.author.id)
         channel_id = message.channel.id
-        date_str = datetime.utcnow().strftime("%Y-%m-%d")
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         # 15 points par image (1 fois par jour par salon) dans les salons « montre ton »
         if channel_id in SPECIAL_CHANNEL_IDS and message.attachments:
@@ -548,7 +561,7 @@ async def end_concours(interaction: discord.Interaction):
 # === Récap Hebdomadaire (Lundi 15h) ===
 @tasks.loop(minutes=1)
 async def weekly_recap():
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     # Europe/Paris est UTC+2 en juin → 15h locale = 13h UTC
     if now.weekday() == 0 and now.hour == 13 and now.minute == 0:
         channel = bot.get_channel(HALL_OF_FLAMME_CHANNEL_ID)
@@ -563,7 +576,7 @@ async def weekly_recap():
 # === Sauvegarde quotidienne des scores (Minuit UTC) ===
 @tasks.loop(minutes=1)
 async def daily_scores_backup():
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if now.hour == 0 and now.minute == 0:  # Minuit UTC
         channel = bot.get_channel(MOD_LOG_CHANNEL_ID)
         if channel:
