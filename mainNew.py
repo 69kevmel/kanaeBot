@@ -26,7 +26,7 @@ HALL_OF_FLAMME_CHANNEL_ID = CONCOURS_CHANNEL_ID  # Même salon que CONCOURS_CHAN
 BLABLA_CHANNEL_ID = 1372542107864272918  # Salon Blabla
 
 # ID du rôle à exclure du classement (remplacez par l’ID réel)
-EXCLUDED_ROLE_ID = 123456789012345678
+EXCLUDED_ROLE_ID = 1372330929133064253
 
 RSS_FEEDS = [
     'https://www.newsweed.fr/feed/',
