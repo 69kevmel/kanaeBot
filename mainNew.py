@@ -7,7 +7,6 @@ import aiohttp
 import discord
 import aiomysql
 import urllib.parse
-import hashlib
 from discord.ext import tasks, commands
 from datetime import datetime, date, timedelta, timezone
 from discord import app_commands
@@ -27,7 +26,7 @@ HALL_OF_FLAMME_CHANNEL_ID = CONCOURS_CHANNEL_ID  # Même salon que CONCOURS_CHAN
 BLABLA_CHANNEL_ID = 1372542107864272918  # Salon Blabla
 
 # ID du rôle à exclure du classement (remplacez par l’ID réel)
-EXCLUDED_ROLE_ID = 123456789012345678  # ← Mettre ici l’ID du rôle à exclure
+EXCLUDED_ROLE_ID = 123456789012345678
 
 RSS_FEEDS = [
     'https://www.newsweed.fr/feed/',
@@ -37,7 +36,7 @@ RSS_FEEDS = [
 
 EMOJIS = ['🔥', '💨', '🌿', '😎', '✨', '🌀', '🍁', '🎶', '🌈', '🧘']
 
-# Liste des IDs de salons où on peut gagner 15 points par media (1 fois par jour par salon)
+# Liste des IDs de salons où on peut gagner 15 points par média (1 fois/jour/salon)
 SPECIAL_CHANNEL_IDS = {
     1372310203227312291: 15,
     1372288717279985864: 15,
@@ -65,7 +64,7 @@ else:
 
 # Variables en mémoire
 voice_times = {}        # { user_id: accumulated_seconds }
-reaction_tracker = set()  # set of (message_id, reactor_id) pour éviter double-comptabilisation
+reaction_tracker = set()  # set of (message_id, reactor_id)
 invite_cache = {}       # { guild_id: [Invite objects] }
 
 intents = discord.Intents.default()
@@ -78,6 +77,21 @@ intents.reactions = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 sent_links = set()
 user_dm_counts = {}
+
+# === FONCTION UTILE POUR ENVOYER UN DM EN SÉCURITÉ ===
+async def safe_send_dm(user: discord.User, content: str):
+    # (1) Tronquer si > 2000 caractères
+    if len(content) > 2000:
+        content = content[:1990] + "…"
+
+    # (2) Éviter les mentions globales dans un DM
+    content = content.replace("@everyone", "@\u200beveryone").replace("@here", "@\u200bhere")
+
+    try:
+        await user.send(content)
+    except discord.HTTPException as e:
+        # Discord renvoie souvent 400 si le contenu est invalide ou si l'user a désactivé les DM
+        print(f"❗ Impossible d'envoyer le DM à {user} : {e}")
 
 # === UTILITAIRES BASE DE DONNÉES ===
 
@@ -167,8 +181,8 @@ async def add_points(pool, user_id, pts):
         async with conn.cursor() as cur:
             await cur.execute("""
                 INSERT INTO scores (user_id, points) VALUES (%s, %s)
-                ON DUPLICATE KEY UPDATE points = points + VALUES(points);
-            """, (int(user_id), pts))
+                ON DUPLICATE KEY UPDATE points = points + %s;
+            """, (int(user_id), pts, pts))
             await cur.execute("SELECT points FROM scores WHERE user_id=%s;", (int(user_id),))
             row = await cur.fetchone()
             return row[0]
@@ -249,7 +263,7 @@ async def on_ready():
     try:
         db_pool = await init_db_pool()
     except Exception:
-        return  # on stoppe si on n’a pas pu créer le pool
+        return  # Si la connexion échoue, on arrête
 
     try:
         await ensure_tables(db_pool)
@@ -302,7 +316,7 @@ class InfosConcoursButton(discord.ui.View):
 # === MP de bienvenue & Parrainage ===
 @bot.event
 async def on_member_join(member):
-    # 1️⃣ On détecte l’inviteur
+    # 1️⃣ Détection de l’inviteur
     try:
         guild = member.guild
         invites_before = invite_cache.get(guild.id, [])
@@ -328,9 +342,9 @@ async def on_member_join(member):
                 if member.id in [m.id for m in guild.members]:
                     try:
                         new_total = await add_points(db_pool, inviter_id, 100)
-                        await inviter.send(
-                            f"🎉 Bravo frérot ! +100 points pour ton parrainage de `{member.name}`, il est resté 2 h sur le serveur ! "
-                            f"Total : {new_total} points. Continue comme ça 🚀"
+                        await safe_send_dm(inviter,
+                            f"🎉 Bravo frérot ! +100 points pour ton parrainage de `{member.name}`, "
+                            f"il est resté 2 h sur le serveur ! Total : {new_total} points. Continue comme ça 🚀"
                         )
                     except Exception as e:
                         print(f"❗ Impossible d’envoyer le MP d’affiliation à {inviter.display_name} : {e}")
@@ -371,7 +385,7 @@ async def on_member_join(member):
             "👉 Clique sur les boutons ci-dessous pour bien t'installer sur le serveur ! 🌿🔥"
         )
 
-        await member.send(content=message, view=view)
+        await safe_send_dm(member, message)
         print(f"✅ MP de bienvenue envoyé à {member.name}")
     except Exception as e:
         print(f"❗ Erreur lors de l'envoi du MP : {e}")
@@ -419,15 +433,15 @@ async def on_message(message):
                     new_total = await add_points(db_pool, user_id, SPECIAL_CHANNEL_IDS[channel_id])
                     if new_total in [10, 50, 100]:
                         try:
-                            await message.author.send(
+                            await safe_send_dm(message.author,
                                 f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀"
                             )
                         except:
-                            print(f"❗ Impossible d'envoyer le message à {message.author.display_name}.")
+                            pass
 
     await bot.process_commands(message)
 
-# === Réactions (2 points par emoji, max 1 par membre et par message) ===
+# === Réactions (2 points par émoji, max 1 par membre et par message) ===
 @bot.event
 async def on_reaction_add(reaction, user):
     if user.bot:
@@ -449,9 +463,9 @@ async def on_reaction_add(reaction, user):
 
     if new_total in [10, 50, 100]:
         try:
-            await author.send(f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀")
+            await safe_send_dm(author, f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀")
         except:
-            print(f"❗ Impossible d'envoyer le message à {author.display_name}.")
+            pass
 
 # === Commande slash /hey ===
 @bot.tree.command(name="hey", description="Parle avec Kanaé, l'IA officielle du serveur !")
@@ -491,7 +505,7 @@ async def score_cmd(interaction: discord.Interaction):
             await cur.execute("SELECT user_id, points FROM scores ORDER BY points DESC;")
             sorted_rows = await cur.fetchall()
 
-    # Construire classement en excluant ceux qui ont le rôle EXCLUDED_ROLE_ID
+    # On filtre les membres ayant EXCLUDED_ROLE_ID
     filtered = []
     for uid, pts in sorted_rows:
         member = interaction.guild.get_member(int(uid))
@@ -551,13 +565,12 @@ async def top_5(interaction: discord.Interaction):
 @app_commands.describe(user_id="ID Discord de l'utilisateur", nouveau_total="Nombre de points à définir")
 async def set_points(interaction: discord.Interaction, user_id: str, nouveau_total: int):
     try:
-        # Vérifier que l'utilisateur existe dans la guild
         guild = interaction.guild
         member = guild.get_member(int(user_id))
         if not member:
             await interaction.response.send_message("❌ Utilisateur introuvable dans cette guild.", ephemeral=True)
             return
-        # Définir en base
+
         await set_user_points(db_pool, user_id, nouveau_total)
         await interaction.response.send_message(f"✅ Le score de {member.display_name} a été mis à **{nouveau_total} points**.", ephemeral=True)
     except Exception as e:
@@ -613,20 +626,20 @@ async def presentation_concours(interaction: discord.Interaction):
         "📜 **Présentation du Concours Kanaé :**\n\n"
         "Bienvenue à tous ! Voici les règles du jeu :\n"
         "1. **Postez une photo ou vidéo** dans l'un des salons « montre ton ».\n"
-        "   • **15 points par jour** et par salon. (maximum 1 média par salon, par jour et par fumeur) 📸🌿\n\n"
+        "   • **15 points par jour** et par salon. (max. 1 média/jour/salon) 📸🌿\n\n"
         "2. **Restez en vocal** pour gagner des points : **1 point toutes les 30 minutes**. 🎙️⏳\n\n"
         "3. **Réactions** : chaque émoji laissé par un autre membre sur votre message = **2 points** ✨👍\n"
         "   (1 émoji max par membre et par message) 👀\n\n"
         "4. **Parrainage** : **+100 points** si le nouveau membre reste **au moins 2 heures** sur le serveur 🔗🚀\n\n"
-        "🏆 **Les gains ?** Suffit d'être premier et ce mois-ci tu gagneras **25 € de matos de fume** (feuille, grinder, etc.) ! 💰🎉\n"
-        "🥇 **C'est tout ?** Ah et bien sûr vous aurez le rôle le plus convoité du serveur aka **Kanaé d’or** ! 🌟🏅\n"
+        "🏆 **Les gains ?** Suffit d’être premier et ce mois-ci tu gagneras **25 € de matos de fume** (feuille, grinder, etc.) ! 💰🎉\n"
+        "🥇 **C’est tout ?** Ah et bien sûr vous aurez le rôle le plus convoité du serveur : **Kanaé d’or** ! 🌟🏅\n"
         "📆 **Récap chaque lundi à 15 h du Top 3 dans ce channel**. 📊🗓️\n"
         "📢 **Fin du concours** le 1er juillet 2025. ⏰🚩\n\n"
         "Bonne chance à tous, restez chill, et amusez-vous ! 🌿😎\n\n"
         "🔧 **Commandes utiles à connaître :**\n"
         "   • `/score` : Affiche TON score et ton rang actuel. 📈🔒\n"
         "   • `/top-5` : Affiche le Top 5 des meilleurs fumeurs du concours. 🏆✉️\n"
-        "@everyone, c'est parti !"
+        "@everyone, c’est parti !"
     )
 
     await channel.send(content)
@@ -643,7 +656,7 @@ async def pre_end(interaction: discord.Interaction):
     content = (
         "⚡ **Attention, il ne reste que quelques heures avant la fin du concours !** ⚡\n"
         "Donnez tout ce qui vous reste, postez vos meilleures photos/vidéos, et préparez-vous pour le décompte final ! 🌿🔥\n"
-        "@everyone, c'est le moment de briller !\n\n"
+        "@everyone, c’est le moment de briller !\n\n"
     )
     await channel.send(content)
     await interaction.response.send_message("✅ Message de pré-fin envoyé !", ephemeral=True)
@@ -661,7 +674,6 @@ async def end_concours(interaction: discord.Interaction):
             await cur.execute("SELECT user_id, points FROM scores ORDER BY points DESC;")
             all_rows = await cur.fetchall()
 
-    # Filtrer ceux avec le rôle exclu
     guild = channel.guild
     podium = []
     for uid, pts in all_rows:
@@ -750,19 +762,22 @@ async def update_voice_points():
                 if member.bot:
                     continue
                 user_id = str(member.id)
-                voice_times[user_id] = voice_times.get(user_id, 0) + 300  # +5 min (300 sec)
+                voice_times[user_id] = voice_times.get(user_id, 0) + 300  # +5 min (300 s)
                 if voice_times[user_id] >= 1800:  # 30 min
                     new_total = await add_points(db_pool, user_id, 1)
                     voice_times[user_id] -= 1800
 
                     if new_total in [10, 50, 100]:
                         try:
-                            await member.send(f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀")
+                            await safe_send_dm(member,
+                                f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀"
+                            )
                         except:
-                            print(f"❗ Impossible d'envoyer le message à {member.display_name}.")
+                            pass
 
 # === News : Récupération et envoi RSS ===
 async def fetch_and_send_news():
+    # Attendre que db_pool soit prêt
     while db_pool is None:
         await asyncio.sleep(1)
 
@@ -819,7 +834,7 @@ async def fetch_and_send_news():
         else:
             print("❗ Aucune nouvelle à publier cette fois-ci.")
 
-        print("⏳ Attente de 3 heures avant la prochaine vérification...")
+        print("⏳ Attente de 3 heures avant la prochaine vérification…")
         await asyncio.sleep(3 * 3600)
 
 # === Lancement du bot et des tâches ===
