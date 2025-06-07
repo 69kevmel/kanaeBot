@@ -15,14 +15,16 @@ logger = logging.getLogger(__name__)
 @tasks.loop(minutes=1)
 async def weekly_recap(bot: discord.Client):
     now = datetime.now(timezone.utc)
-    if now.weekday() == 0 and now.hour == 13 and now.minute == 0:
+    if now.hour == 15 and now.minute == 0 and now.date().toordinal() % 2 == 0:
         channel = bot.get_channel(config.HALL_OF_FLAMME_CHANNEL_ID)
         if not channel:
             return
         guild = channel.guild
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("SELECT user_id, points FROM scores ORDER BY points DESC;")
+                await cur.execute(
+                    "SELECT user_id, points FROM scores ORDER BY points DESC;"
+                )
                 all_rows = await cur.fetchall()
         top_filtered = []
         for uid, pts in all_rows:
@@ -30,14 +32,40 @@ async def weekly_recap(bot: discord.Client):
             if member and any(role.id == config.EXCLUDED_ROLE_ID for role in member.roles):
                 continue
             top_filtered.append((uid, pts))
-            if len(top_filtered) >= 3:
+            if len(top_filtered) >= 5:
                 break
         if not top_filtered:
             return
-        msg = "📊🌿 @everyone **Classement hebdo des meilleurs fumeurs (Top 3) :**\n"
+
+        places = [
+            "🥇 1ʳᵉ place : {name} — {pts} pts 🔥👑",
+            "🥈 2ᵉ place : {name} — {pts} pts 💨🎖️",
+            "🥉 3ᵉ place : {name} — {pts} pts 🌿🥉",
+            "🏅 4ᵉ place : {name} — {pts} pts ✨",
+            "🏅 5ᵉ place : {name} — {pts} pts ✨",
+        ]
+
+        lines = ["🌟 Hall of Flamme — TOP 5 Kanaé 🌟", ""]
+
         for i, (user_id, points) in enumerate(top_filtered, 1):
             user = await bot.fetch_user(int(user_id))
-            msg += f"{i}. {user.display_name} ({points} pts)\n"
+            lines.append(places[i - 1].format(name=user.display_name, pts=points))
+            if i == 3:
+                lines.append("")
+
+        for i in range(len(top_filtered) + 1, 6):
+            lines.append(places[i - 1].format(name="-", pts="-"))
+            if i == 3:
+                lines.append("")
+
+        lines.append("")
+        lines.append(
+            "Respect à vous les frérots, vous envoyez du très lourd ! Continuez comme ça, le trône du **Kanaé d’Or ** vous attend ! 🛋️🌈"
+        )
+        lines.append("")
+        lines.append("🌿 Restez chill, partagez la vibe. Kanaé représente ! 🌿")
+
+        msg = "\n".join(lines)
         await channel.send(msg)
         logger.info("Weekly recap sent")
 
