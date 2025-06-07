@@ -75,26 +75,45 @@ def setup(bot: commands.Bot):
 
     @bot.tree.command(name="top-5", description="Affiche le top 5 des meilleurs fumeurs")
     async def top_5(interaction: discord.Interaction):
-        async with database.db_pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT user_id, points FROM scores ORDER BY points DESC;")
-                all_rows = await cur.fetchall()
-        top_filtered = []
-        for uid, pts in all_rows:
-            member = interaction.guild.get_member(int(uid))
-            if member and any(role.id == config.EXCLUDED_ROLE_ID for role in member.roles):
-                continue
-            top_filtered.append((uid, pts))
-            if len(top_filtered) >= 5:
-                break
-        if not top_filtered:
-            await interaction.response.send_message("📊 Pas encore de points enregistrés (ou tous les membres sont exclus).", ephemeral=True)
+        message = await helpers.build_top5_message(
+            bot,
+            interaction.guild,
+            mention_users=False,
+            header="🌿 Top 5 Fumeurs Kanaé 🌿",
+        )
+        if not message:
+            await interaction.response.send_message(
+                "📊 Pas encore de points enregistrés (ou tous les membres sont exclus).",
+                ephemeral=True,
+            )
             return
-        msg = "🏆 **Top 5 fumeurs :**\n"
-        for i, (user_id, points) in enumerate(top_filtered, 1):
-            user = await bot.fetch_user(int(user_id))
-            msg += f"{i}. {user.display_name} ({points} pts)\n"
-        await interaction.response.send_message(msg, ephemeral=True)
+        await interaction.response.send_message(message, ephemeral=True)
+
+    @bot.tree.command(name="send-first-top-5", description="Envoie immédiatement le Top 5 et démarre le cycle")
+    async def send_first_top_5(interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Permission refusée.", ephemeral=True)
+            return
+        channel = bot.get_channel(config.HALL_OF_FLAMME_CHANNEL_ID)
+        if not channel:
+            await interaction.response.send_message("❗ Le channel 'hall-of-flamme' est introuvable.", ephemeral=True)
+            return
+        msg = await helpers.build_top5_message(
+            bot,
+            interaction.guild,
+            mention_users=True,
+            header="🌟 Hall of Flamme — TOP 5 Kanaé 🌟",
+        )
+        if not msg:
+            await interaction.response.send_message("📊 Pas encore de points enregistrés.", ephemeral=True)
+            return
+        msg += (
+            "\n\nRespect à vous les frérots, vous envoyez du très lourd ! Continuez comme ça, le trône du **Kanaé d’Or ** vous attend ! 🛋️🌈"
+            "\n\n🌿 Restez chill, partagez la vibe. Kanaé représente ! 🌿"
+        )
+        await channel.send(msg)
+        await database.mark_recap_sent(database.db_pool, date.today())
+        await interaction.response.send_message("✅ Top 5 envoyé et cycle lancé !", ephemeral=True)
 
     @bot.tree.command(name="set", description="Définit manuellement le total de points d'un utilisateur")
     @app_commands.describe(user_id="ID Discord de l'utilisateur", nouveau_total="Nombre de points à définir")

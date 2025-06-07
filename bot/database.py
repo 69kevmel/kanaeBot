@@ -62,6 +62,13 @@ async def ensure_tables(pool):
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """
             )
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS recap_history (
+                    sent_date DATE PRIMARY KEY
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                """
+            )
     logger.info("Database tables checked/created")
 
 async def get_user_points(pool, user_id):
@@ -172,4 +179,28 @@ async def mark_news_sent(pool, link, date):
                 """,
                 (link, date),
             )
+
+async def has_sent_recap(pool, date):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT 1 FROM recap_history WHERE sent_date=%s;",
+                (date,),
+            )
+            return await cur.fetchone() is not None
+
+async def mark_recap_sent(pool, date):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT IGNORE INTO recap_history (sent_date) VALUES (%s);",
+                (date,),
+            )
+
+async def get_last_recap_date(pool):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT MAX(sent_date) FROM recap_history;")
+            row = await cur.fetchone()
+            return row[0] if row and row[0] else None
 
