@@ -36,6 +36,50 @@ class InfosConcoursButton(discord.ui.View):
         await interaction.response.send_message(message, ephemeral=True)
 
 
+class LeaveSurveyView(discord.ui.View):
+    def __init__(self, bot: commands.Bot):
+        super().__init__(timeout=None)
+        self.bot = bot
+
+    async def send_ack(self, interaction: discord.Interaction, reason: str):
+        channel = self.bot.get_channel(config.MOD_LOG_CHANNEL_ID)
+        if channel:
+            await channel.send(f"❌ {interaction.user} a quitté le serveur : {reason}")
+        await interaction.response.send_message("Merci pour ton retour !", ephemeral=True)
+
+    @discord.ui.button(
+        label="Car il n'y a pas assez de chose à faire",
+        style=discord.ButtonStyle.secondary,
+        custom_id="leave_reason_1",
+    )
+    async def reason_1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.send_ack(interaction, "Pas assez de choses à faire")
+
+    @discord.ui.button(
+        label="Car il n'y a pas assez de gens",
+        style=discord.ButtonStyle.secondary,
+        custom_id="leave_reason_2",
+    )
+    async def reason_2(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.send_ack(interaction, "Pas assez de gens")
+
+    @discord.ui.button(
+        label="Pcq c'est pas mon mood de serveur",
+        style=discord.ButtonStyle.secondary,
+        custom_id="leave_reason_3",
+    )
+    async def reason_3(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.send_ack(interaction, "Pas son mood")
+
+    @discord.ui.button(
+        label="Car je pensais pouvoir acheter de la verte ou du marron ?",
+        style=discord.ButtonStyle.secondary,
+        custom_id="leave_reason_4",
+    )
+    async def reason_4(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.send_ack(interaction, "Pensait pouvoir acheter")
+
+
 def setup(bot: commands.Bot):
     @bot.event
     async def on_ready():
@@ -121,6 +165,20 @@ def setup(bot: commands.Bot):
             logger.info("Welcome DM sent to %s", member.name)
         except Exception as e:
             logger.warning("Failed to send welcome DM: %s", e)
+
+    @bot.event
+    async def on_member_remove(member: discord.Member):
+        try:
+            view = LeaveSurveyView(bot)
+            content = (
+                f"😢 {member.name}, on est vraiment triste que tu partes...\n"
+                "Est-ce que tu pourrais nous aider à améliorer le serveur en "
+                "cliquant simplement sur un des boutons ci-dessous ?"
+            )
+            await member.send(content=content, view=view)
+            logger.info("Leave survey sent to %s", member.name)
+        except Exception as e:
+            logger.warning("Failed to send leave survey: %s", e)
 
     @bot.event
     async def on_message(message: discord.Message):
