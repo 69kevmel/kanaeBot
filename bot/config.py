@@ -1,0 +1,49 @@
+import os
+import urllib.parse
+
+TOKEN = os.getenv('TOKEN')
+MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
+AGENT_ID_MISTRAL = os.getenv('AGENT_ID_MISTRAL')
+
+NEWS_CHANNEL_ID = 1377605635365011496
+CHANNEL_REGLES_ID = 1372288019977212017
+CHANNEL_PRESENTE_TOI_ID = 1372288185299636224
+CHANNEL_MONTRE_TA_BATTE_ID = 1372310203227312291
+MOD_LOG_CHANNEL_ID = 1372328694739107880
+CONCOURS_CHANNEL_ID = 1372289319984693328
+HALL_OF_FLAMME_CHANNEL_ID = CONCOURS_CHANNEL_ID
+BLABLA_CHANNEL_ID = 1372542107864272918
+
+EXCLUDED_ROLE_ID = 1372330929133064253
+
+RSS_FEEDS = [
+    'https://www.newsweed.fr/feed/',
+    'https://lelabdubonheur.fr/blog/rss',
+    'https://www.norml.fr/feed/',
+]
+
+EMOJIS = ['🔥', '💨', '🌿', '😎', '✨', '🌀', '🍁', '🎶', '🌈', '🧘']
+
+SPECIAL_CHANNEL_IDS = {
+    1372310203227312291: 15,
+    1372288717279985864: 15,
+    1372310123313369169: 15,
+    1379055632858091581: 15,
+    1372288229750865990: 15,
+    1372288825308610750: 15,
+}
+
+DATABASE_URL = os.getenv('MYSQL_URL')
+if DATABASE_URL:
+    url = urllib.parse.urlparse(DATABASE_URL)
+    MYSQLUSER = url.username
+    MYSQLPASSWORD = url.password
+    MYSQLHOST = url.hostname
+    MYSQLPORT = url.port or 3306
+    MYSQLDATABASE = url.path.lstrip('/')
+else:
+    MYSQLHOST = os.getenv('MYSQLHOST', 'localhost')
+    MYSQLPORT = int(os.getenv('MYSQLPORT', 3306))
+    MYSQLUSER = os.getenv('MYSQLUSER', 'root')
+    MYSQLPASSWORD = os.getenv('MYSQLPASSWORD', '')
+    MYSQLDATABASE = os.getenv('MYSQLDATABASE', 'kanaebot')
