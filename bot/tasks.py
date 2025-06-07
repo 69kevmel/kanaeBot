@@ -15,7 +15,10 @@ logger = logging.getLogger(__name__)
 @tasks.loop(minutes=1)
 async def weekly_recap(bot: discord.Client):
     now = datetime.now(timezone.utc)
-    if now.hour == 15 and now.minute == 0 and now.date().toordinal() % 2 == 0:
+    today = now.date()
+    if now.hour == 15 and now.minute == 0 and today.toordinal() % 2 == 0:
+        if await database.has_sent_recap(database.db_pool, today):
+            return
         channel = bot.get_channel(config.HALL_OF_FLAMME_CHANNEL_ID)
         if not channel:
             return
@@ -67,6 +70,7 @@ async def weekly_recap(bot: discord.Client):
 
         msg = "\n".join(lines)
         await channel.send(msg)
+        await database.mark_recap_sent(database.db_pool, today)
         logger.info("Weekly recap sent")
 
 @tasks.loop(minutes=1)
