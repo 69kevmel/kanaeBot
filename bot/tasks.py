@@ -15,30 +15,58 @@ logger = logging.getLogger(__name__)
 @tasks.loop(minutes=1)
 async def weekly_recap(bot: discord.Client):
     now = datetime.now(timezone.utc)
-    today = now.date()
-    if now.hour == 15 and now.minute == 0:
-        last_date = await database.get_last_recap_date(database.db_pool)
-        if last_date is None:
-            return
-        if (today - last_date).days < 2 or await database.has_sent_recap(database.db_pool, today):
-            return
+    if now.hour == 15 and now.minute == 0 and now.date().toordinal() % 2 == 0:
         channel = bot.get_channel(config.HALL_OF_FLAMME_CHANNEL_ID)
         if not channel:
             return
-        message = await helpers.build_top5_message(
-            bot,
-            channel.guild,
-            mention_users=True,
-            header="🌟 Hall of Flamme — TOP 5 Kanaé 🌟",
-        )
-        if not message:
+        guild = channel.guild
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT user_id, points FROM scores ORDER BY points DESC;"
+                )
+                all_rows = await cur.fetchall()
+        top_filtered = []
+        for uid, pts in all_rows:
+            member = guild.get_member(int(uid))
+            if member and any(role.id == config.EXCLUDED_ROLE_ID for role in member.roles):
+                continue
+            top_filtered.append((uid, pts))
+            if len(top_filtered) >= 5:
+                break
+        if not top_filtered:
             return
-        message += (
-            "\n\nRespect à vous les frérots, vous envoyez du très lourd ! Continuez comme ça, le trône du **Kanaé d’Or ** vous attend ! 🛋️🌈"
-            "\n\n🌿 Restez chill, partagez la vibe. Kanaé représente ! 🌿"
+
+        places = [
+            "🥇 1ʳᵉ place : {name} — {pts} pts 🔥👑",
+            "🥈 2ᵉ place : {name} — {pts} pts 💨🎖️",
+            "🥉 3ᵉ place : {name} — {pts} pts 🌿🥉",
+            "🏅 4ᵉ place : {name} — {pts} pts ✨",
+            "🏅 5ᵉ place : {name} — {pts} pts ✨",
+        ]
+
+        lines = ["🌟 Hall of Flamme — TOP 5 Kanaé 🌟", ""]
+
+        for i, (user_id, points) in enumerate(top_filtered, 1):
+            user = await bot.fetch_user(int(user_id))
+            lines.append(places[i - 1].format(name=user.display_name, pts=points))
+            if i == 3:
+                lines.append("")
+
+        for i in range(len(top_filtered) + 1, 6):
+            lines.append(places[i - 1].format(name="-", pts="-"))
+            if i == 3:
+                lines.append("")
+
+        lines.append("")
+        lines.append(
+            "Respect à vous les frérots, vous envoyez du très lourd ! Continuez comme ça, le trône du **Kanaé d’Or ** vous attend ! 🛋️🌈"
         )
-        await channel.send(message)
-        await database.mark_recap_sent(database.db_pool, today)
+        lines.append("")
+        lines.append("🌿 Restez chill, partagez la vibe. Kanaé représente ! 🌿")
+
+        msg = "\n".join(lines)
+        await channel.send(msg)
         logger.info("Weekly recap sent")
 
 @tasks.loop(minutes=1)
