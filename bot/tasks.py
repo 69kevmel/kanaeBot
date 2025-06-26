@@ -177,24 +177,39 @@ async def fetch_and_send_news(bot: discord.Client):
     logger.info("✅ News postée : %s", title)
 
 
-@tasks.loop(hours=2)
+async def spawn_pokeweed_loop(bot: discord.Client):
+    await bot.wait_until_ready()
+
+    while True:
+        delay = random.randint(3600, 10800)  # entre 1h et 3h en secondes
+        logger.info(f"⏳ Prochain spawn dans {delay // 60} minutes...")
+        await asyncio.sleep(delay)
+        await spawn_pokeweed(bot)
+
 async def spawn_pokeweed(bot: discord.Client):
-        await bot.wait_until_ready()
-        channel = bot.get_channel(config.CHANNEL_POKEWEED_ID)
-        if not channel:
-            return
+    channel = bot.get_channel(config.CHANNEL_POKEWEED_ID)
+    if not channel:
+        logger.warning("❗ Channel Pokéweed introuvable.")
+        return
 
-        async with database.db_pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT * FROM pokeweeds ORDER BY RAND() LIMIT 1;")
-                pokeweed = await cur.fetchone()
-                if not pokeweed:
-                    logger.warning("❗ Aucun Pokéweed trouvé dans la base (table vide ?)")
-                    return
+    async with database.db_pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT * FROM pokeweeds ORDER BY RAND() LIMIT 1;")
+            pokeweed = await cur.fetchone()
 
-        state.current_spawn = pokeweed
-        state.capture_winner = None
-        msg = await channel.send(
-            f"👀 Un Pokéweed sauvage apparaît !\n🌿 **{pokeweed[1]}** — 💥 {pokeweed[5]} | ❤️ {pokeweed[2]}\nTape `/capture` vite !"
-        )
+    if not pokeweed:
+        logger.warning("❗ Aucun Pokéweed trouvé en base.")
+        return
+
+    border = "✨" * 12
+    await channel.send(
+        f"{border}\n\n"
+        f"👀 Un Pokéweed sauvage est apparu !\n\n"
+        f"🌿 **{pokeweed[1]}** — 💥 {pokeweed[5]} | ❤️ {pokeweed[2]}\n"
+        f"⚡ Tape **/capture** pour tenter ta chance !\n\n"
+        f"{border}"
+    )
+    state.current_spawn = pokeweed
+    state.capture_winner = None
+
 

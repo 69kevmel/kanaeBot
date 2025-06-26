@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime, timezone, date
 import random
 import os
 import discord
@@ -8,7 +7,7 @@ from discord.ext import commands
 from discord import app_commands
 
 from . import config, database, helpers, state
-from datetime import date
+from datetime import datetime, timedelta, timezone, date
 
 logger = logging.getLogger(__name__)
 
@@ -259,122 +258,125 @@ def setup(bot: commands.Bot):
         await channel.send(content)
         await interaction.response.send_message("✅ Concours terminé et résultats postés !", ephemeral=True)
 
-    @bot.tree.command(name="booster", description="Ouvre un booster de 4 Pokéweed aléatoires !")
+    @bot.tree.command(name="booster", description="Ouvre un booster de 4 Pokéweeds aléatoires !")
     async def booster(interaction: discord.Interaction):
-            user_id = interaction.user.id
-            today = date.today()
+        user_id = interaction.user.id
+        now = datetime.now(timezone.utc)
 
-            async with database.db_pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    # Vérifie limite quotidienne
-                    await cur.execute(
-                        "SELECT 1 FROM daily_limits WHERE user_id=%s AND channel_id=%s AND date=%s;",
-                        (user_id, 999999, today)
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                # Vérifie le cooldown 12h
+                await cur.execute("SELECT last_opened FROM booster_cooldowns WHERE user_id=%s;", (user_id,))
+                row = await cur.fetchone()
+                if row and row[0] and (now - row[0]) < timedelta(hours=12):
+                    remaining = timedelta(hours=12) - (now - row[0])
+                    hours = remaining.seconds // 3600
+                    minutes = (remaining.seconds % 3600) // 60
+                    await interaction.response.send_message(
+                        f"🕒 Tu dois attendre encore **{hours}h {minutes}min** avant d’ouvrir un nouveau booster frérot.",
+                        ephemeral=True
                     )
-                    if await cur.fetchone():
-                        await interaction.response.send_message(
-                            "🚫 T'as déjà ouvert un booster aujourd'hui frérot.",
-                            ephemeral=True
-                        )
-                        return
+                    return
 
-                    # Marque comme utilisé
+                # Mets à jour le cooldown
+                await cur.execute(
+                    "INSERT INTO booster_cooldowns (user_id, last_opened) VALUES (%s, %s) ON DUPLICATE KEY UPDATE last_opened = %s;",
+                    (user_id, now, now)
+                )
+
+                # Tire 4 Pokéweeds aléatoires
+                await cur.execute("SELECT * FROM pokeweeds ORDER BY RAND() LIMIT 4;")
+                rewards = await cur.fetchall()
+
+                # Barème points par rareté
+                points_by_rarity = {
+                    "Commun": 2,
+                    "Peu Commun": 4,
+                    "Rare": 8,
+                    "Très Rare": 12,
+                    "Légendaire": 15,
+                }
+                bonus_new = 5
+
+                total_points = 0
+                desc_lines = []
+
+                for r in rewards:
+                    pokeweed_id = r[0]
+                    name = r[1]
+                    hp = r[2]
+                    capture_points = r[3]
+                    power = r[4]
+                    rarity = r[5]
+
+                    # Check si déjà possédé
                     await cur.execute(
-                        "INSERT INTO daily_limits (user_id, channel_id, date) VALUES (%s, %s, %s);",
-                        (user_id, 999999, today)
+                        "SELECT COUNT(*) FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s;",
+                        (user_id, pokeweed_id)
+                    )
+                    count = await cur.fetchone()
+                    owned = count[0] if count else 0
+
+                    # Ajoute la carte
+                    await cur.execute(
+                        "INSERT INTO user_pokeweeds (user_id, pokeweed_id, capture_date) VALUES (%s, %s, NOW());",
+                        (user_id, pokeweed_id)
                     )
 
-                    # Tire 4 Pokéweeds au hasard
-                    await cur.execute("SELECT * FROM pokeweeds ORDER BY RAND() LIMIT 4;")
-                    rewards = await cur.fetchall()
+                    # Calcule les points
+                    pts = points_by_rarity.get(rarity, 0)
+                    if owned == 0:
+                        pts += bonus_new
+                    total_points += pts
 
-                    # Barème points par rareté
-                    points_by_rarity = {
-                        "Commun": 2,
-                        "Peu Commun": 4,
-                        "Rare": 8,
-                        "Très Rare": 12,
-                        "Légendaire": 15,
+                    # Format texte
+                    status = "🆕 Nouvelle carte !" if owned == 0 else f"x{owned + 1}"
+                    stars = {
+                        "Commun": "🌿",
+                        "Peu Commun": "🌱🌿",
+                        "Rare": "🌟",
+                        "Très Rare": "💎",
+                        "Légendaire": "🌈👑",
                     }
-                    bonus_new = 5
+                    flair = {
+                        "Commun": "",
+                        "Peu Commun": "*",
+                        "Rare": "**",
+                        "Très Rare": "***",
+                        "Légendaire": "__**"
+                    }
+                    flair_end = flair  # même fermeture que l'ouverture
+                    desc_lines.append(
+                        f"{stars.get(rarity, '🌿')} {flair[rarity]}{name}{flair_end[rarity]} "
+                        f"— 💥 {power} | ❤️ {hp} | ✨ {rarity} ({status})"
+                    )
 
-                    total_points = 0
-                    desc_lines = []
+                # Ajoute les points au score global
+                await database.add_points(database.db_pool, user_id, total_points)
 
-                    for r in rewards:
-                        pokeweed_id = r[0]
-                        name = r[1]
-                        hp = r[2]
-                        capture_points = r[3]
-                        power = r[4]
-                        rarity = r[5]
+        # Messages
+        desc = "\n".join(desc_lines)
+        border = "🌀" * 12
 
-                        # Vérifie si l'user avait déjà la carte
-                        await cur.execute(
-                            "SELECT COUNT(*) FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s;",
-                            (user_id, pokeweed_id)
-                        )
-                        count = await cur.fetchone()
-                        owned = count[0] if count else 0
+        # DM privé stylisé
+        await interaction.response.send_message(
+            f"🃏 Ouverture du booster... ✨\n\n"
+            f"{desc}\n\n"
+            f"🎖️ Tu gagnes **{total_points} points** dans le concours Kanaé !",
+            ephemeral=True
+        )
 
-                        # Ajoute la carte
-                        await cur.execute(
-                            "INSERT INTO user_pokeweeds (user_id, pokeweed_id, capture_date) VALUES (%s, %s, NOW());",
-                            (user_id, pokeweed_id)
-                        )
-
-                        # Calcule points
-                        pts = points_by_rarity.get(rarity, 0)
-                        if owned == 0:
-                            pts += bonus_new
-
-                        total_points += pts
-
-                        # Format affichage
-                        status = "🆕 Nouvelle carte !" if owned == 0 else f"x{owned + 1}"
-                        stars = {
-                            "Commun": "🌿",
-                            "Peu Commun": "🌱🌿",
-                            "Rare": "🌟",
-                            "Très Rare": "💎",
-                            "Légendaire": "🌈👑",
-                        }
-                        flair = {
-                            "Commun": "",
-                            "Peu Commun": "*",
-                            "Rare": "**",
-                            "Très Rare": "***",
-                            "Légendaire": "__**"
-                        }
-                        flair_end = {
-                            "Commun": "",
-                            "Peu Commun": "*",
-                            "Rare": "**",
-                            "Très Rare": "***",
-                            "Légendaire": "**__"
-                        }
-                        desc_lines.append(
-                            f"{stars.get(rarity, '🌿')} {flair[rarity]}{name}{flair_end[rarity]} "
-                            f"— 💥 {power} | ❤️ {hp} | ✨ {rarity} ({status})"
-                        )
-
-                    # Ajoute les points au total général
-                    await database.add_points(database.db_pool, user_id, total_points)
-
-            desc = "\n".join(desc_lines)
-            await interaction.response.send_message(
-                f"🃏 Ouverture du booster... ✨\n\n"
+        # Annonce publique
+        channel = interaction.guild.get_channel(config.CHANNEL_POKEWEED_ID)
+        if channel:
+            await channel.send(
+                f"{border}\n\n"
+                f"📦 **{interaction.user.display_name}** a ouvert un booster :\n\n"
                 f"{desc}\n\n"
-                f"🎖️ Tu gagnes **{total_points} points** dans le concours Kanaé !",
-                ephemeral=True
+                f"🎖️ +{total_points} points pour le concours !\n\n"
+                f"{border}"
             )
 
-            channel = interaction.guild.get_channel(config.CHANNEL_POKEWEED_ID)
-            if channel:
-                await channel.send(
-                    f"📦 **{interaction.user.display_name}** a ouvert un booster :\n{desc}\n\n"
-                    f"🎖️ +{total_points} points pour le concours !"
-                )
 
    
     @bot.tree.command(name="capture", description="Tente de capturer le Pokéweed sauvage")

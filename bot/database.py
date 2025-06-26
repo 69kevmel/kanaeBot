@@ -29,6 +29,14 @@ async def ensure_tables(pool):
         async with conn.cursor() as cur:
             await cur.execute(
                 """
+                CREATE TABLE IF NOT EXISTS booster_cooldowns (
+                    user_id BIGINT PRIMARY KEY,
+                    last_opened DATETIME
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                """
+            )   
+            await cur.execute(
+                """
                 CREATE TABLE IF NOT EXISTS scores (
                     user_id BIGINT PRIMARY KEY,
                     points INT NOT NULL
