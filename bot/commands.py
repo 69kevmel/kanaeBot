@@ -259,8 +259,8 @@ def setup(bot: commands.Bot):
         await channel.send(content)
         await interaction.response.send_message("✅ Concours terminé et résultats postés !", ephemeral=True)
 
-        @bot.tree.command(name="booster", description="Ouvre un booster de 4 Pokéweed aléatoires !")
-        async def booster(interaction: discord.Interaction):
+    @bot.tree.command(name="booster", description="Ouvre un booster de 4 Pokéweed aléatoires !")
+    async def booster(interaction: discord.Interaction):
             user_id = interaction.user.id
             today = date.today()
 
@@ -376,7 +376,7 @@ def setup(bot: commands.Bot):
                     f"🎖️ +{total_points} points pour le concours !"
                 )
 
-
+   
     @bot.tree.command(name="capture", description="Tente de capturer le Pokéweed sauvage")
     async def capture(interaction: discord.Interaction):
         if not state.current_spawn:
