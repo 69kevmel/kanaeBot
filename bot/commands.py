@@ -410,20 +410,9 @@ def setup(bot: commands.Bot):
         await interaction.response.send_message("Tu l’as capturé !", ephemeral=True)
  
     @bot.tree.command(name="pokedex", description="Affiche ton Pokédex personnel ou celui d’un autre")
-    @app_commands.describe(nomuser="Nom d'utilisateur à inspecter")
-    async def pokedex(interaction: discord.Interaction, nomuser: str = None):
-        target = interaction.user
-
-        if nomuser:
-            matched = [
-                m for m in interaction.guild.members
-                if nomuser.lower() in m.display_name.lower()
-            ]
-            if matched:
-                target = matched[0]
-            else:
-                await interaction.response.send_message("❌ Utilisateur introuvable.", ephemeral=True)
-                return
+    @app_commands.describe(membre="@ Le membre dont tu veux voir le Pokédex")
+    async def pokedex(interaction: discord.Interaction, membre: discord.Member = None):
+        target = membre if membre else interaction.user
 
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
