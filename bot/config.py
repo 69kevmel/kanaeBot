@@ -13,12 +13,13 @@ MOD_LOG_CHANNEL_ID = 1372328694739107880
 CONCOURS_CHANNEL_ID = 1372289319984693328
 HALL_OF_FLAMME_CHANNEL_ID = CONCOURS_CHANNEL_ID
 BLABLA_CHANNEL_ID = 1372542107864272918
+CHANNEL_POKEWEED_ID=1387864808413466674
 
 EXCLUDED_ROLE_ID = 1372330929133064253
 
 RSS_FEEDS = [
     'https://www.newsweed.fr/feed/',
-    'https://lelabdubonheur.fr/blog/rss',
+    'https://lelabdubonheur.fr/blog/rss/latest-posts',
     'https://www.norml.fr/feed/',
 ]
 
