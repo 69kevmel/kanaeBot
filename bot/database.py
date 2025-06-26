@@ -69,6 +69,27 @@ async def ensure_tables(pool):
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """
             )
+            # Pokeweed tables
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS pokeweeds (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(100),
+                    hp INT,
+                    capture_points INT,
+                    power INT,
+                    rarity VARCHAR(50),
+                    drop_rate FLOAT
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            """)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS user_pokeweeds (
+                    user_id BIGINT,
+                    pokeweed_id INT,
+                    capture_date DATETIME,
+                    PRIMARY KEY (user_id, pokeweed_id, capture_date),
+                    FOREIGN KEY (pokeweed_id) REFERENCES pokeweeds(id)
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            """)
     logger.info("Database tables checked/created")
 
 async def get_user_points(pool, user_id):

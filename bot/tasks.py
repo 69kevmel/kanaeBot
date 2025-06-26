@@ -4,6 +4,7 @@ from datetime import datetime, date, timezone
 import os
 import random
 import feedparser
+import socket
 
 import discord
 from discord.ext import tasks
@@ -107,50 +108,90 @@ async def update_voice_points(bot: discord.Client):
                     if new_total in [10, 50, 100]:
                         await helpers.safe_send_dm(member, f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀")
 
+@tasks.loop(hours=3)
 async def fetch_and_send_news(bot: discord.Client):
     while database.db_pool is None:
         await asyncio.sleep(1)
+
     await bot.wait_until_ready()
     channel = bot.get_channel(config.NEWS_CHANNEL_ID)
     if not channel:
-        logger.warning("News channel not found")
+        logger.warning("❗ Canal de news introuvable.")
         return
-    logger.info("News channel found: %s", channel)
-    while True:
-        now = datetime.now(timezone.utc)
-        today = now.date()
-        logger.info("Checking news feeds")
-        all_entries = []
-        for feed_url in config.RSS_FEEDS:
+
+    logger.info("🔍 Récupération des flux RSS...")
+    today = date.today()
+    socket.setdefaulttimeout(10)  # Timeout global pour les flux
+
+    all_entries = []
+
+    for feed_url in config.RSS_FEEDS:
+        try:
             feed = feedparser.parse(feed_url)
+
+            if feed.bozo:
+                logger.warning("⚠️ Flux corrompu : %s → %s", feed_url, feed.bozo_exception)
+                continue
+
             for entry in feed.entries:
                 published = entry.get('published_parsed')
                 if not published:
                     continue
+
                 entry_date = date(published.tm_year, published.tm_mon, published.tm_mday)
                 if entry_date != today:
                     continue
+
                 link = entry.link
                 if not await database.has_sent_news(database.db_pool, link):
                     all_entries.append(entry)
-        if all_entries:
-            entry = random.choice(all_entries)
-            link = entry.link
-            published_date = date(
-                entry.published_parsed.tm_year,
-                entry.published_parsed.tm_mon,
-                entry.published_parsed.tm_mday,
-            )
-            message = (
+
+        except Exception as e:
+            logger.error("❌ Erreur sur le flux %s : %s", feed_url, e)
+            continue
+
+    if not all_entries:
+        logger.info("📭 Aucun article à publier aujourd’hui.")
+        return
+
+    # Choix et publication aléatoire
+    entry = random.choice(all_entries)
+    title = entry.title
+    link = entry.links
+    published_date = date(
+        entry.published_parsed.tm_year,
+        entry.published_parsed.tm_mon,
+        entry.published_parsed.tm_mday
+    )
+
+    message = (
                 f"🌿 **Nouvelles fraîches de la journée !** 🌿\n"
                 f"**{entry.title}**\n"
                 f"{link}\n\n"
                 f"🗓️ Publié le : {published_date}"
             )
-            await channel.send(message)
-            logger.info("News posted: %s", entry.title)
-            await database.mark_news_sent(database.db_pool, link, today)
-        else:
-            logger.info("No news to post")
-        await asyncio.sleep(3 * 3600)
+
+    await channel.send(message)
+    await database.mark_news_sent(database.db_pool, link, today)
+
+    logger.info("✅ News postée : %s", title)
+
+
+@tasks.loop(hours=2)
+async def spawn_pokeweed(bot: discord.Client):
+        await bot.wait_until_ready()
+        channel = bot.get_channel(config.CHANNEL_POKEWEED_ID)
+        if not channel:
+            return
+
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT * FROM pokeweeds ORDER BY RAND() LIMIT 1;")
+                pokeweed = await cur.fetchone()
+
+        state.current_spawn = pokeweed
+        state.capture_winner = None
+        msg = await channel.send(
+            f"👀 Un Pokéweed sauvage apparaît !\n🌿 **{pokeweed[1]}** — 💥 {pokeweed[5]} | ❤️ {pokeweed[2]}\nTape `/capture` vite !"
+        )
 

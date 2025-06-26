@@ -105,6 +105,7 @@ def setup(bot: commands.Bot):
         tasks.weekly_recap.start(bot)
         tasks.daily_scores_backup.start(bot)
         tasks.update_voice_points.start(bot)
+        tasks.spawn_pokeweed.start(bot)
         bot.loop.create_task(tasks.fetch_and_send_news(bot))
     @bot.event
     async def on_member_join(member: discord.Member):
@@ -155,12 +156,23 @@ def setup(bot: commands.Bot):
                 "Avant de te lancer, check les règles 📜 et **présente-toi** 🙋 (Montre qui t'es, en fait).\n\n"
                 "Ensuite, n'hésite pas à découvrir les autres salons et à te balader 🚀.\n\n"
                 "**(👻 Discret ? Si tu veux changer ton pseudo, clique droit sur ton profil à droite et choisis 'Changer le pseudo')**\n\n"
-                "Quelques commandes utiles :\n"
-                "   ➡️ **/play** {nom de la musique} - Pour écouter de la musique dans le channel **KanaéMUSIC** 🎶\n"
-                "   ➡️ **/hey** {message} - Pour parler avec l'**IA officielle** de **Kanaé** 🤖\n"
-                "   ➡️ **/score** - Pour voir **ta place** dans le concours de **Kanaé** 🎖️\n"
-                "   ➡️ **/top-5** - Pour voir les **5 plus gros fumeurs** du concours de **Kanaé** 🏆\n\n"
+                "📦 **Nouveau ! Le Pokéweed est là !**\n"
+                "   ➕ Collectionne les 31 strains fusionnés avec des Pokémon 🌈\n"
+                "   🃏 Ouvre des boosters, attrape des Pokéweeds sauvages, et complète ton Pokédex !\n\n"
+                "🎮 **Commandes utiles à découvrir :**\n\n"
+                "🎵 **Musique :**\n"
+                "   ➡️ **/play** {musique} – Lance une musique dans **KanaéMUSIC** 🎶\n\n"
+                "🧠 **IA :**\n"
+                "   ➡️ **/hey** {message} – Discute avec l'IA de **Kanaé** 🤖\n\n"
+                "🏆 **Concours Kanaé :**\n"
+                "   ➡️ **/score** – Voir ton score et ton rang 📊\n"
+                "   ➡️ **/top-5** – Voir les 5 meilleurs fumeurs du mois 🏆\n\n"
+                "🌿 **Pokéweed (nouveauté) :**\n"
+                "   ➡️ **/booster** – Ouvre 4 Pokéweeds aléatoires 🔥 (1x/jour)\n"
+                "   ➡️ **/capture** – Attrape le Pokéweed sauvage dans le salon Pokéweed 💨\n"
+                "   ➡️ **/pokedex** – Affiche ta collection ou celle d’un autre 🌿\n"
             )
+
             await helpers.safe_send_dm(member, message)
             logger.info("Welcome DM sent to %s", member.name)
         except Exception as e:

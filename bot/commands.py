@@ -7,9 +7,36 @@ import aiohttp
 from discord.ext import commands
 from discord import app_commands
 
-from . import config, database, helpers
+from . import config, database, helpers, state
+from datetime import date
 
 logger = logging.getLogger(__name__)
+
+def format_pokeweed_display(name, power, hp, rarity, owned=0):
+    stars = {
+        "Commun": "🌿",
+        "Peu Commun": "🌱🌿",
+        "Rare": "🌟",
+        "Très Rare": "💎",
+        "Légendaire": "🌈👑",
+    }
+    flair = {
+        "Commun": "",
+        "Peu Commun": "*",
+        "Rare": "**",
+        "Très Rare": "***",
+        "Légendaire": "__**"
+    }
+    flair_end = {
+        "Commun": "",
+        "Peu Commun": "*",
+        "Rare": "**",
+        "Très Rare": "***",
+        "Légendaire": "**__"
+    }
+
+    status = "🆕 Nouvelle carte !" if owned == 0 else f"x{owned + 1}"
+    return f"{stars.get(rarity, '🌿')} {flair[rarity]}{name}{flair_end[rarity]} — 💥 {power} | ❤️ {hp} | ✨ {rarity} ({status})"
 
 
 def setup(bot: commands.Bot):
@@ -232,3 +259,290 @@ def setup(bot: commands.Bot):
         await channel.send(content)
         await interaction.response.send_message("✅ Concours terminé et résultats postés !", ephemeral=True)
 
+        @bot.tree.command(name="booster", description="Ouvre un booster de 4 Pokéweed aléatoires !")
+        async def booster(interaction: discord.Interaction):
+            user_id = interaction.user.id
+            today = date.today()
+
+            async with database.db_pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    # Vérifie limite quotidienne
+                    await cur.execute(
+                        "SELECT 1 FROM daily_limits WHERE user_id=%s AND channel_id=%s AND date=%s;",
+                        (user_id, 999999, today)
+                    )
+                    if await cur.fetchone():
+                        await interaction.response.send_message(
+                            "🚫 T'as déjà ouvert un booster aujourd'hui frérot.",
+                            ephemeral=True
+                        )
+                        return
+
+                    # Marque comme utilisé
+                    await cur.execute(
+                        "INSERT INTO daily_limits (user_id, channel_id, date) VALUES (%s, %s, %s);",
+                        (user_id, 999999, today)
+                    )
+
+                    # Tire 4 Pokéweeds au hasard
+                    await cur.execute("SELECT * FROM pokeweeds ORDER BY RAND() LIMIT 4;")
+                    rewards = await cur.fetchall()
+
+                    # Barème points par rareté
+                    points_by_rarity = {
+                        "Commun": 2,
+                        "Peu Commun": 4,
+                        "Rare": 8,
+                        "Très Rare": 12,
+                        "Légendaire": 15,
+                    }
+                    bonus_new = 5
+
+                    total_points = 0
+                    desc_lines = []
+
+                    for r in rewards:
+                        pokeweed_id = r[0]
+                        name = r[1]
+                        hp = r[2]
+                        capture_points = r[3]
+                        power = r[4]
+                        rarity = r[5]
+
+                        # Vérifie si l'user avait déjà la carte
+                        await cur.execute(
+                            "SELECT COUNT(*) FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s;",
+                            (user_id, pokeweed_id)
+                        )
+                        count = await cur.fetchone()
+                        owned = count[0] if count else 0
+
+                        # Ajoute la carte
+                        await cur.execute(
+                            "INSERT INTO user_pokeweeds (user_id, pokeweed_id, capture_date) VALUES (%s, %s, NOW());",
+                            (user_id, pokeweed_id)
+                        )
+
+                        # Calcule points
+                        pts = points_by_rarity.get(rarity, 0)
+                        if owned == 0:
+                            pts += bonus_new
+
+                        total_points += pts
+
+                        # Format affichage
+                        status = "🆕 Nouvelle carte !" if owned == 0 else f"x{owned + 1}"
+                        stars = {
+                            "Commun": "🌿",
+                            "Peu Commun": "🌱🌿",
+                            "Rare": "🌟",
+                            "Très Rare": "💎",
+                            "Légendaire": "🌈👑",
+                        }
+                        flair = {
+                            "Commun": "",
+                            "Peu Commun": "*",
+                            "Rare": "**",
+                            "Très Rare": "***",
+                            "Légendaire": "__**"
+                        }
+                        flair_end = {
+                            "Commun": "",
+                            "Peu Commun": "*",
+                            "Rare": "**",
+                            "Très Rare": "***",
+                            "Légendaire": "**__"
+                        }
+                        desc_lines.append(
+                            f"{stars.get(rarity, '🌿')} {flair[rarity]}{name}{flair_end[rarity]} "
+                            f"— 💥 {power} | ❤️ {hp} | ✨ {rarity} ({status})"
+                        )
+
+                    # Ajoute les points au total général
+                    await database.add_points(database.db_pool, user_id, total_points)
+
+            desc = "\n".join(desc_lines)
+            await interaction.response.send_message(
+                f"🃏 Ouverture du booster... ✨\n\n"
+                f"{desc}\n\n"
+                f"🎖️ Tu gagnes **{total_points} points** dans le concours Kanaé !",
+                ephemeral=True
+            )
+
+            channel = interaction.guild.get_channel(config.CHANNEL_POKEWEED_ID)
+            if channel:
+                await channel.send(
+                    f"📦 **{interaction.user.display_name}** a ouvert un booster :\n{desc}\n\n"
+                    f"🎖️ +{total_points} points pour le concours !"
+                )
+
+
+    @bot.tree.command(name="capture", description="Tente de capturer le Pokéweed sauvage")
+    async def capture(interaction: discord.Interaction):
+        if not state.current_spawn:
+            await interaction.response.send_message("Aucun Pokéweed à capturer maintenant...", ephemeral=True)
+            return
+
+        winner_id = getattr(state, "capture_winner", None)
+        if winner_id:
+            await interaction.response.send_message("Trop tard, il a déjà été capturé !", ephemeral=True)
+            return
+
+        pokeweed = state.current_spawn
+        user_id = interaction.user.id
+
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT INTO user_pokeweeds (user_id, pokeweed_id, capture_date) VALUES (%s, %s, NOW());",
+                    (user_id, pokeweed[0])
+                )
+                points = pokeweed[3]
+                await database.add_points(database.db_pool, user_id, points)
+
+        state.capture_winner = user_id
+        channel = interaction.channel
+        await channel.send(f"🎉 Bravo {interaction.user.mention} pour avoir capturé **{pokeweed[1]}** ! +{pokeweed[3]} points 🌿")
+        await interaction.response.send_message("Tu l’as capturé !", ephemeral=True)
+ 
+    @bot.tree.command(name="pokedex", description="Affiche ton Pokédex personnel ou celui d’un autre")
+    @app_commands.describe(nomuser="Nom d'utilisateur à inspecter")
+    async def pokedex(interaction: discord.Interaction, nomuser: str = None):
+        target = interaction.user
+
+        if nomuser:
+            matched = [
+                m for m in interaction.guild.members
+                if nomuser.lower() in m.display_name.lower()
+            ]
+            if matched:
+                target = matched[0]
+            else:
+                await interaction.response.send_message("❌ Utilisateur introuvable.", ephemeral=True)
+                return
+
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("""
+                    SELECT 
+                        p.name, p.hp, p.capture_points, p.power, p.rarity,
+                        COUNT(*) as total,
+                        MAX(up.capture_date) as last_capture
+                    FROM user_pokeweeds up 
+                    JOIN pokeweeds p ON up.pokeweed_id = p.id 
+                    WHERE up.user_id=%s 
+                    GROUP BY p.id;
+                """, (target.id,))
+                rows = await cur.fetchall()
+
+                await cur.execute("SELECT COUNT(*) FROM pokeweeds;")
+                total_available = (await cur.fetchone())[0]
+
+        if not rows:
+            await interaction.response.send_message(
+                f"📘 {target.display_name} n’a capturé aucun Pokéweed...", ephemeral=True
+            )
+            return
+
+        # Format d’affichage stylé
+        def format_entry(name, hp, points, power, rarity, total, last_date):
+            stars = {
+                "Commun": "🌿",
+                "Peu Commun": "🌱🌿",
+                "Rare": "🌟",
+                "Très Rare": "💎",
+                "Légendaire": "🌈👑",
+            }
+            flair = {
+                "Commun": "",
+                "Peu Commun": "*",
+                "Rare": "**",
+                "Très Rare": "***",
+                "Légendaire": "__**"
+            }
+            flair_end = {
+                "Commun": "",
+                "Peu Commun": "*",
+                "Rare": "**",
+                "Très Rare": "***",
+                "Légendaire": "**__"
+            }
+            last_seen = last_date.strftime("%d %b %Y") if last_date else "?"
+            return (
+                f"{stars.get(rarity, '🌿')} {flair[rarity]}{name}{flair_end[rarity]}\n"
+                f"• Rareté : {rarity}\n"
+                f"• 💥 Attaque : {power}\n"
+                f"• ❤️ Vie : {hp}\n"
+                f"• ✨ Points de capture : +{points}\n"
+                f"• 📦 Possédé : x{total}\n"
+                f"• 📅 Dernière capture : {last_seen}\n"
+            )
+
+        entries = "\n".join([
+            format_entry(name, hp, points, power, rarity, total, last_date)
+            for name, hp, points, power, rarity, total, last_date in rows
+        ])
+
+        unique_count = len(rows)
+        total_count = sum([total for *_, total, _ in rows])
+        missing = total_available - unique_count
+
+        summary = (
+            f"\n📊 **Statistiques de collection**\n"
+            f"✅ Cartes différentes : {unique_count}/{total_available}\n"
+            f"📦 Total de cartes collectées : {total_count}\n"
+            f"❗ Il te manque encore **{missing}** Pokéweed{'s' if missing > 1 else ''} pour compléter le Pokédex !"
+        )
+
+        await interaction.response.send_message(
+            f"📘 Pokédex de {target.display_name} :\n\n{entries}{summary}",
+            ephemeral=True
+        )
+
+
+    @bot.tree.command(name="init-pokeweeds", description="Insère les 31 Pokéweed de base")
+    async def init_pokeweeds(interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Admin uniquement.", ephemeral=True)
+            return
+
+        strains = [
+            ("Gelachu", 100, 10, 40, "Rare", 0.05),
+            ("Bulba Kush", 90, 7, 30, "Commun", 0.20),
+            ("Sourmander", 110, 9, 35, "Peu Commun", 0.15),
+            ("Gluezor", 120, 12, 45, "Rare", 0.05),
+            ("OGtortank", 105, 8, 32, "Peu Commun", 0.10),
+            ("Widowlee", 95, 6, 28, "Commun", 0.25),
+            ("Purplax", 80, 5, 22, "Commun", 0.30),
+            ("Skyweedon", 115, 10, 38, "Rare", 0.07),
+            ("Pineachu", 85, 7, 25, "Peu Commun", 0.12),
+            ("AK-Dracau", 100, 8, 33, "Peu Commun", 0.12),
+            ("Zkittlechu", 90, 6, 27, "Commun", 0.20),
+            ("Jackasaur", 100, 8, 30, "Peu Commun", 0.10),
+            ("Durbanape", 110, 9, 36, "Rare", 0.07),
+            ("Lemonix", 95, 6, 26, "Commun", 0.22),
+            ("Amnesir", 105, 9, 31, "Peu Commun", 0.10),
+            ("Noctulight", 100, 7, 29, "Commun", 0.20),
+            ("Weddinja", 110, 11, 37, "Rare", 0.05),
+            ("Trainquaza", 100, 9, 34, "Peu Commun", 0.08),
+            ("Piekachu", 90, 7, 28, "Commun", 0.22),
+            ("Critidos", 105, 8, 32, "Peu Commun", 0.09),
+            ("Crackchomp", 95, 6, 27, "Commun", 0.25),
+            ("Dosidoof", 100, 8, 31, "Peu Commun", 0.10),
+            ("Mimosaur", 90, 6, 26, "Commun", 0.22),
+            ("Tangrowth OG", 85, 5, 24, "Commun", 0.30),
+            ("Forbiddenite", 115, 12, 40, "Rare", 0.04),
+            ("Slurrizard", 100, 8, 33, "Peu Commun", 0.12),
+            ("Runflare", 110, 10, 36, "Rare", 0.06),
+            ("Gmokémon", 120, 13, 42, "Très Rare", 0.03),
+            ("Maclax", 110, 9, 35, "Rare", 0.05),
+            ("Sherbizard", 95, 7, 29, "Commun", 0.22),
+            ("Kanéclor", 150, 20, 60, "Légendaire", 0.01)
+        ]
+
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                for s in strains:
+                    await cur.execute("INSERT INTO pokeweeds (name, hp, capture_points, power, rarity, drop_rate) VALUES (%s,%s,%s,%s,%s,%s);", s)
+
+        await interaction.response.send_message("🌿 31 Pokéweed insérés !", ephemeral=True)
