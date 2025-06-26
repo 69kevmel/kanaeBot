@@ -188,6 +188,9 @@ async def spawn_pokeweed(bot: discord.Client):
             async with conn.cursor() as cur:
                 await cur.execute("SELECT * FROM pokeweeds ORDER BY RAND() LIMIT 1;")
                 pokeweed = await cur.fetchone()
+                if not pokeweed:
+                    logger.warning("❗ Aucun Pokéweed trouvé dans la base (table vide ?)")
+                    return
 
         state.current_spawn = pokeweed
         state.capture_winner = None
