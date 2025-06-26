@@ -268,15 +268,17 @@ def setup(bot: commands.Bot):
                 # Vérifie le cooldown 12h
                 await cur.execute("SELECT last_opened FROM booster_cooldowns WHERE user_id=%s;", (user_id,))
                 row = await cur.fetchone()
-                if row and row[0] and (now - row[0]) < timedelta(hours=12):
-                    remaining = timedelta(hours=12) - (now - row[0])
-                    hours = remaining.seconds // 3600
-                    minutes = (remaining.seconds % 3600) // 60
-                    await interaction.response.send_message(
-                        f"🕒 Tu dois attendre encore **{hours}h {minutes}min** avant d’ouvrir un nouveau booster frérot.",
-                        ephemeral=True
-                    )
-                    return
+                if row and row[0]:
+                    last_time = row[0].replace(tzinfo=timezone.utc) if row[0].tzinfo is None else row[0]
+                    if (now - last_time) < timedelta(hours=12):
+                        remaining = timedelta(hours=12) - (now - last_time)
+                        hours = remaining.seconds // 3600
+                        minutes = (remaining.seconds % 3600) // 60
+                        await interaction.response.send_message(
+                            f"🕒 Tu dois attendre encore **{hours}h {minutes}min** avant d’ouvrir un nouveau booster frérot.",
+                            ephemeral=True
+                        )
+                        return
 
                 # Mets à jour le cooldown
                 await cur.execute(
