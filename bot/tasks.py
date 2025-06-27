@@ -181,7 +181,7 @@ async def spawn_pokeweed_loop(bot: discord.Client):
     await bot.wait_until_ready()
 
     while True:
-        delay = random.randint(3600, 10800)  # entre 1h et 3h en secondes
+        delay = random.randint(14400, 18000)  # entre 1h et 3h en secondes
         logger.info(f"⏳ Prochain spawn dans {delay // 60} minutes...")
         await asyncio.sleep(delay)
         await spawn_pokeweed(bot)
