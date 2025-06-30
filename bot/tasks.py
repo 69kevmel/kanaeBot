@@ -103,7 +103,7 @@ async def update_voice_points(bot: discord.Client):
                 user_id = str(member.id)
                 state.voice_times[user_id] = state.voice_times.get(user_id, 0) + 300
                 if state.voice_times[user_id] >= 1800:
-                    new_total = await database.add_points(database.db_pool, user_id, 1)
+                    new_total = await database.add_points(database.db_pool, user_id, 5)
                     state.voice_times[user_id] -= 1800
                     if new_total in [10, 50, 100]:
                         await helpers.safe_send_dm(member, f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀")
@@ -181,7 +181,7 @@ async def spawn_pokeweed_loop(bot: discord.Client):
     await bot.wait_until_ready()
 
     while True:
-        delay = random.randint(14400, 18000)  # entre 1h et 3h en secondes
+        delay = random.randint(14400, 18000)  # entre 4h et 5h en secondes
         logger.info(f"⏳ Prochain spawn dans {delay // 60} minutes...")
         await asyncio.sleep(delay)
         await spawn_pokeweed(bot)
