@@ -539,3 +539,19 @@ def setup(bot: commands.Bot):
                     await cur.execute("INSERT INTO pokeweeds (name, hp, capture_points, power, rarity, drop_rate) VALUES (%s,%s,%s,%s,%s,%s);", s)
 
         await interaction.response.send_message("🌿 31 Pokéweed insérés !", ephemeral=True)
+
+    @bot.tree.command(name="reset-scores", description="Réinitialise tous les scores du concours à 0 (ADMIN uniquement)")
+    async def reset_scores(interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Tu dois être administrateur pour faire ça frérot.", ephemeral=True)
+            return
+
+        try:
+            async with database.db_pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute("UPDATE scores SET points = 0;")
+            await interaction.response.send_message("✅ Tous les scores ont été réinitialisés à **0** pour le concours.", ephemeral=False)
+            logger.info("Tous les scores du concours ont été remis à zéro.")
+        except Exception as e:
+            logger.error("/reset-scores failed: %s", e)
+            await interaction.response.send_message("❌ Erreur lors de la remise à zéro des scores.", ephemeral=True)
