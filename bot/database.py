@@ -77,6 +77,21 @@ async def ensure_tables(pool):
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """
             )
+            await cur.execute(
+                """CREATE TABLE IF NOT EXISTS thread_participation (
+                    thread_id BIGINT,
+                    user_id BIGINT,
+                    PRIMARY KEY(thread_id, user_id)
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+                CREATE TABLE IF NOT EXISTS thread_daily_creations (
+                    user_id BIGINT,
+                    date DATE,
+                    PRIMARY KEY(user_id, date)
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                """
+                )
+
             # Pokeweed tables
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS pokeweeds (

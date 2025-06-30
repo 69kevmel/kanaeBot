@@ -195,7 +195,11 @@ def setup(bot: commands.Bot):
 
     @bot.event
     async def on_message(message: discord.Message):
-        if isinstance(message.channel, discord.DMChannel) and not message.author.bot:
+        if message.author.bot:
+            return
+
+        # --- ✅ Gestion DM
+        if isinstance(message.channel, discord.DMChannel):
             user_id = str(message.author.id)
             count = state.user_dm_counts.get(user_id, 0)
             if count == 0:
@@ -212,10 +216,14 @@ def setup(bot: commands.Bot):
                 logger.info("DM response sent to %s", message.author)
             except Exception as e:
                 logger.warning("Failed to reply to DM: %s", e)
-        if not message.author.bot and isinstance(message.channel, discord.TextChannel):
+
+        # --- ✅ Gestion messages dans TEXT CHANNELS
+        if isinstance(message.channel, discord.TextChannel):
             user_id = str(message.author.id)
             channel_id = message.channel.id
             date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+            # ✅ Points pour posts avec média dans salons spéciaux
             if channel_id in config.SPECIAL_CHANNEL_IDS and message.attachments:
                 image_extensions = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff")
                 video_extensions = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".flv", ".wmv")
@@ -229,7 +237,36 @@ def setup(bot: commands.Bot):
                         new_total = await database.add_points(database.db_pool, user_id, config.SPECIAL_CHANNEL_IDS[channel_id])
                         if new_total in [10, 50, 100]:
                             await helpers.safe_send_dm(message.author, f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀")
+
+        # --- ✅ NOUVEAU : gestion des messages dans les THREADS (Forum)
+        if isinstance(message.channel, discord.Thread):
+            thread = message.channel
+            thread_id = thread.id
+            responder_id = message.author.id
+
+            async with database.db_pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    # Check si le mec a déjà posté dans ce thread (pour éviter multiple +5)
+                    await cur.execute(
+                        "SELECT 1 FROM thread_participation WHERE thread_id=%s AND user_id=%s;",
+                        (thread_id, responder_id)
+                    )
+                    if not await cur.fetchone():
+                        # Première participation ➜ +5 points
+                        await cur.execute(
+                            "INSERT INTO thread_participation (thread_id, user_id) VALUES (%s, %s);",
+                            (thread_id, responder_id)
+                        )
+                        await database.add_points(database.db_pool, responder_id, 5)
+                        logger.info(f"✅ +5 points à {responder_id} pour réponse dans thread {thread_id}")
+
+                        # Bonus au créateur du thread (si ce n'est pas lui)
+                        if thread.owner and thread.owner.id != responder_id:
+                            await database.add_points(database.db_pool, thread.owner.id, 2)
+                            logger.info(f"✅ +2 points au créateur {thread.owner.id} pour réponse de {responder_id}")
+
         await bot.process_commands(message)
+
 
     @bot.event
     async def on_reaction_add(reaction: discord.Reaction, user: discord.User):
@@ -248,3 +285,31 @@ def setup(bot: commands.Bot):
         if new_total in [10, 50, 100]:
             await helpers.safe_send_dm(author, f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀")
 
+    @bot.event
+    async def on_thread_create(thread: discord.Thread):
+        if thread.owner is None or thread.guild is None:
+            return
+
+        user_id = thread.owner.id
+        today = datetime.now(timezone.utc).date()
+
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                # Vérifie s'il a déjà eu son bonus aujourd'hui
+                await cur.execute(
+                    "SELECT 1 FROM thread_daily_creations WHERE user_id=%s AND date=%s;",
+                    (user_id, today)
+                )
+                if await cur.fetchone():
+                    logger.info(f"{user_id} a déjà créé un sujet aujourd'hui.")
+                    return
+
+                # Donne les points
+                await database.add_points(database.db_pool, user_id, 25)
+                logger.info(f"🎁 +25 points pour création de sujet par {user_id}")
+
+                # Log la création
+                await cur.execute(
+                    "INSERT INTO thread_daily_creations (user_id, date) VALUES (%s, %s);",
+                    (user_id, today)
+                )
