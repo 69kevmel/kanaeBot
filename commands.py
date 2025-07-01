@@ -5,6 +5,7 @@ import discord
 import aiohttp
 from discord.ext import commands
 from discord import app_commands
+import asyncio
 
 from . import config, database, helpers, state
 from datetime import datetime, timedelta, timezone, date
@@ -488,19 +489,28 @@ def setup(bot: commands.Bot):
         )
 
         full_message = f"📘 Pokédex de {target.display_name} :\n\n{entries}{summary}"
-
-        # Discord limite à 2000 caractères
         MAX_LENGTH = 2000
 
         if len(full_message) <= MAX_LENGTH:
             await interaction.response.send_message(full_message, ephemeral=True)
         else:
+            # Envoie la première partie d'annonce
             await interaction.response.send_message(
                 "⚠️ Ton Pokédex est trop grand pour un seul message ! Je t'envoie en plusieurs parties :", ephemeral=True
             )
-            for i in range(0, len(full_message), MAX_LENGTH):
-                await interaction.followup.send(full_message[i:i+MAX_LENGTH], ephemeral=True)
 
+            # Découpe intelligent par lignes
+            lines = full_message.split("\n")
+            chunk = ""
+            for line in lines:
+                if len(chunk) + len(line) + 1 > MAX_LENGTH:
+                    await interaction.followup.send(chunk, ephemeral=True)
+                    await asyncio.sleep(0.3)  # ✅ Petit délai pour éviter spam error
+                    chunk = ""
+                chunk += line + "\n"
+
+            if chunk.strip():
+                await interaction.followup.send(chunk, ephemeral=True)
 
 
     @bot.tree.command(name="init-pokeweeds", description="Insère les 31 Pokéweed de base")
