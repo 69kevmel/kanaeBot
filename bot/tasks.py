@@ -157,7 +157,15 @@ async def fetch_and_send_news(bot: discord.Client):
     # Choix et publication aléatoire
     entry = random.choice(all_entries)
     title = entry.title
-    link = entry.links
+
+    # ✅ Get the real link
+    if hasattr(entry, 'link') and isinstance(entry.link, str):
+        link = entry.link
+    elif hasattr(entry, 'links') and entry.links and isinstance(entry.links[0], dict):
+        link = entry.links[0].get('href', '❓ lien inconnu')
+    else:
+        link = '❓ lien inconnu'
+
     published_date = date(
         entry.published_parsed.tm_year,
         entry.published_parsed.tm_mon,
