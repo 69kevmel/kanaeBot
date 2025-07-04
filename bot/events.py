@@ -107,6 +107,7 @@ def setup(bot: commands.Bot):
         tasks.update_voice_points.start(bot)
         bot.loop.create_task(tasks.spawn_pokeweed_loop(bot))
         bot.loop.create_task(tasks.fetch_and_send_news(bot))
+        
     @bot.event
     async def on_member_join(member: discord.Member):
         try:

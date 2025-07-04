@@ -110,10 +110,11 @@ async def update_voice_points(bot: discord.Client):
 
 @tasks.loop(hours=3)
 async def fetch_and_send_news(bot: discord.Client):
+    await bot.wait_until_ready()
+
     while database.db_pool is None:
         await asyncio.sleep(1)
 
-    await bot.wait_until_ready()
     channel = bot.get_channel(config.NEWS_CHANNEL_ID)
     if not channel:
         logger.warning("❗ Canal de news introuvable.")
@@ -128,7 +129,6 @@ async def fetch_and_send_news(bot: discord.Client):
     for feed_url in config.RSS_FEEDS:
         try:
             feed = feedparser.parse(feed_url)
-
             if feed.bozo:
                 logger.warning("⚠️ Flux corrompu : %s → %s", feed_url, feed.bozo_exception)
                 continue
@@ -142,9 +142,16 @@ async def fetch_and_send_news(bot: discord.Client):
                 if entry_date != today:
                     continue
 
-                link = entry.link
+                # Vérifie lien déjà envoyé
+                if hasattr(entry, 'link') and isinstance(entry.link, str):
+                    link = entry.link
+                elif hasattr(entry, 'links') and entry.links and isinstance(entry.links[0], dict):
+                    link = entry.links[0].get('href', '❓ lien inconnu')
+                else:
+                    link = '❓ lien inconnu'
+
                 if not await database.has_sent_news(database.db_pool, link):
-                    all_entries.append(entry)
+                    all_entries.append((entry, link))
 
         except Exception as e:
             logger.error("❌ Erreur sur le flux %s : %s", feed_url, e)
@@ -155,17 +162,8 @@ async def fetch_and_send_news(bot: discord.Client):
         return
 
     # Choix et publication aléatoire
-    entry = random.choice(all_entries)
+    entry, link = random.choice(all_entries)
     title = entry.title
-
-    # ✅ Get the real link
-    if hasattr(entry, 'link') and isinstance(entry.link, str):
-        link = entry.link
-    elif hasattr(entry, 'links') and entry.links and isinstance(entry.links[0], dict):
-        link = entry.links[0].get('href', '❓ lien inconnu')
-    else:
-        link = '❓ lien inconnu'
-
     published_date = date(
         entry.published_parsed.tm_year,
         entry.published_parsed.tm_mon,
@@ -173,15 +171,14 @@ async def fetch_and_send_news(bot: discord.Client):
     )
 
     message = (
-                f"🌿 **Nouvelles fraîches de la journée !** 🌿\n"
-                f"**{entry.title}**\n"
-                f"{link}\n\n"
-                f"🗓️ Publié le : {published_date}"
-            )
+        f"🌿 **Nouvelles fraîches de la journée !** 🌿\n"
+        f"**{title}**\n"
+        f"{link}\n\n"
+        f"🗓️ Publié le : {published_date}"
+    )
 
     await channel.send(message)
     await database.mark_news_sent(database.db_pool, link, today)
-
     logger.info("✅ News postée : %s", title)
 
 
