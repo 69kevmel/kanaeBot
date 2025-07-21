@@ -108,9 +108,9 @@ async def update_voice_points(bot: discord.Client):
                     if new_total in [10, 50, 100]:
                         await helpers.safe_send_dm(member, f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀")
 
-@tasks.loop(minutes=2)
+@tasks.loop(hours=2)
 async def fetch_and_send_news(bot: discord.Client):
-    logger.info("🚀 Tâche fetch_and_send_news démarrée (cycle de 2 min)")  # AJOUT ICI
+    logger.info("🚀 Tâche fetch_and_send_news démarrée (cycle de 2 heures)")  # AJOUT ICI
     await bot.wait_until_ready()
 
     while database.db_pool is None:
