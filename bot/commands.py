@@ -69,19 +69,24 @@ def setup(bot: commands.Bot):
             response_text = "Yo, j'crois que Mistral est en PLS là, réessaye plus tard."
         await interaction.followup.send(response_text, ephemeral=True)
 
-    @bot.tree.command(name="score", description="Affiche ta place et ton score dans le classement actuel")
-    async def score_cmd(interaction: discord.Interaction):
-        user_id = str(interaction.user.id)
+    @bot.tree.command(name="score", description="Affiche ton score ou celui d’un autre membre")
+    @app_commands.describe(membre="Le membre dont tu veux voir le score")
+    async def score_cmd(interaction: discord.Interaction, membre: discord.Member = None):
+        target = membre if membre else interaction.user
+        user_id = str(target.id)
+
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("SELECT user_id, points FROM scores ORDER BY points DESC;")
                 sorted_rows = await cur.fetchall()
+
         filtered = []
         for uid, pts in sorted_rows:
             member = interaction.guild.get_member(int(uid))
             if member and any(role.id == config.EXCLUDED_ROLE_ID for role in member.roles):
                 continue
             filtered.append((uid, pts))
+
         position = None
         user_score = 0
         for i, (uid, pts) in enumerate(filtered, 1):
@@ -89,16 +94,18 @@ def setup(bot: commands.Bot):
                 position = i
                 user_score = pts
                 break
+
         if position:
             await interaction.response.send_message(
-                f"📊 **{interaction.user.display_name}** ({user_score} pts) → Rang #{position}.",
-                ephemeral=True,
+                f"📊 **{target.display_name}** → {user_score} pts (Rang #{position})",
+                ephemeral=True
             )
         else:
             await interaction.response.send_message(
-                f"📊 **{interaction.user.display_name}**, tu n'as pas encore de points (ou ton rôle est exclu).",
-                ephemeral=True,
+                f"📊 **{target.display_name}** n’a pas encore de points (ou son rôle est exclu).",
+                ephemeral=True
             )
+
 
     @bot.tree.command(name="top-5", description="Affiche le top 5 des meilleurs fumeurs")
     async def top_5(interaction: discord.Interaction):
