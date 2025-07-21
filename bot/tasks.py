@@ -39,14 +39,14 @@ async def weekly_recap(bot: discord.Client):
             return
 
         places = [
-            "🥇 1ʳᵉ place : {name} — {pts} pts 🔥👑",
-            "🥈 2ᵉ place : {name} — {pts} pts 💨🎖️",
-            "🥉 3ᵉ place : {name} — {pts} pts 🌿🥉",
+            "🥇 **1ʳᵉ place : {name} — {pts} pts 🔥👑**",
+            "🥈 **2ᵉ place : {name} — {pts} pts 💨🎖️**",
+            "🥉 **3ᵉ place : {name} — {pts} pts 🌿🥉**",
             "🏅 4ᵉ place : {name} — {pts} pts ✨",
             "🏅 5ᵉ place : {name} — {pts} pts ✨",
         ]
 
-        lines = ["🌟 Hall of Flamme — TOP 5 Kanaé 🌟", ""]
+        lines = ["🌟 TOP 5 pour le concours du **Kanaé d'or** 🌟", ""]
 
         for i, (user_id, points) in enumerate(top_filtered, 1):
             user = await bot.fetch_user(int(user_id))
@@ -108,7 +108,7 @@ async def update_voice_points(bot: discord.Client):
                     if new_total in [10, 50, 100]:
                         await helpers.safe_send_dm(member, f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀")
 
-@tasks.loop(hours=3)
+@tasks.loop(minutes=2)
 async def fetch_and_send_news(bot: discord.Client):
     await bot.wait_until_ready()
 
@@ -142,7 +142,6 @@ async def fetch_and_send_news(bot: discord.Client):
                 if entry_date != today:
                     continue
 
-                # Vérifie lien déjà envoyé
                 if hasattr(entry, 'link') and isinstance(entry.link, str):
                     link = entry.link
                 elif hasattr(entry, 'links') and entry.links and isinstance(entry.links[0], dict):
@@ -158,28 +157,29 @@ async def fetch_and_send_news(bot: discord.Client):
             continue
 
     if not all_entries:
-        logger.info("📭 Aucun article à publier aujourd’hui.")
+        logger.info("📭 Aucun nouvel article à publier aujourd’hui.")
         return
 
-    # Choix et publication aléatoire
-    entry, link = random.choice(all_entries)
-    title = entry.title
-    published_date = date(
-        entry.published_parsed.tm_year,
-        entry.published_parsed.tm_mon,
-        entry.published_parsed.tm_mday
-    )
+    for entry, link in all_entries:
+        title = entry.title
+        published_date = date(
+            entry.published_parsed.tm_year,
+            entry.published_parsed.tm_mon,
+            entry.published_parsed.tm_mday
+        )
 
-    message = (
-        f"🌿 **Nouvelles fraîches de la journée !** 🌿\n"
-        f"**{title}**\n"
-        f"{link}\n\n"
-        f"🗓️ Publié le : {published_date}"
-    )
+        message = (
+            f"🌿 **Nouvelles fraîches de la journée !** 🌿\n"
+            f"**{title}**\n"
+            f"{link}\n\n"
+            f"🗓️ Publié le : {published_date}"
+        )
 
-    await channel.send(message)
-    await database.mark_news_sent(database.db_pool, link, today)
-    logger.info("✅ News postée : %s", title)
+        await channel.send(message)
+        await database.mark_news_sent(database.db_pool, link, today)
+        await asyncio.sleep(2)  # anti-spam pour Discord
+
+    logger.info("✅ %d news postées", len(all_entries))
 
 
 async def spawn_pokeweed_loop(bot: discord.Client):
