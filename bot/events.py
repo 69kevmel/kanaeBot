@@ -107,6 +107,22 @@ def setup(bot: commands.Bot):
         tasks.update_voice_points.start(bot)
         bot.loop.create_task(tasks.spawn_pokeweed_loop(bot))
         bot.loop.create_task(tasks.fetch_and_send_news(bot))
+
+    @bot.event
+    async def on_member_update(before: discord.Member, after: discord.Member):
+        # Vérifie si le rôle Nitro Booster a été ajouté
+        if not before.premium_since and after.premium_since:
+            try:
+                channel = after.guild.get_channel(config.CONCOURS_CHANNEL_ID)
+                if channel:
+                    await channel.send(
+                        f"💎 **{after.mention} vient de booster le serveur !**\n"
+                        f"Merci infiniment pour ton soutien frérot, t'es un vrai 🔥🔥🔥\n"
+                        f"🌿 Grâce à toi, Kanaé monte encore d’un cran !"
+                    )
+            except Exception as e:
+                logger.warning("❌ Erreur lors du message de boost : %s", e)
+    
         
     @bot.event
     async def on_member_join(member: discord.Member):

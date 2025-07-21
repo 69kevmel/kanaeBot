@@ -180,6 +180,8 @@ async def fetch_and_send_news(bot: discord.Client):
         await asyncio.sleep(2)  # anti-spam pour Discord
 
     logger.info("✅ %d news postées", len(all_entries))
+logger.info("🌀 Tâche fetch_and_send_news terminée.")
+
 
 
 async def spawn_pokeweed_loop(bot: discord.Client):
