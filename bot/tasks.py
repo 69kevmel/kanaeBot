@@ -110,6 +110,7 @@ async def update_voice_points(bot: discord.Client):
 
 @tasks.loop(minutes=2)
 async def fetch_and_send_news(bot: discord.Client):
+    logger.info("🚀 Tâche fetch_and_send_news démarrée (cycle de 2 min)")  # AJOUT ICI
     await bot.wait_until_ready()
 
     while database.db_pool is None:

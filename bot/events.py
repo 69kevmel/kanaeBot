@@ -105,15 +105,15 @@ def setup(bot: commands.Bot):
         tasks.weekly_recap.start(bot)
         tasks.daily_scores_backup.start(bot)
         tasks.update_voice_points.start(bot)
+        tasks.fetch_and_send_news.start(bot)
         bot.loop.create_task(tasks.spawn_pokeweed_loop(bot))
-        bot.loop.create_task(tasks.fetch_and_send_news(bot))
 
     @bot.event
     async def on_member_update(before: discord.Member, after: discord.Member):
         # Vérifie si le rôle Nitro Booster a été ajouté
         if not before.premium_since and after.premium_since:
             try:
-                channel = after.guild.get_channel(config.CONCOURS_CHANNEL_ID)
+                channel = after.guild.get_channel(config.BLABLA_CHANNEL_ID)
                 if channel:
                     await channel.send(
                         f"💎 **{after.mention} vient de booster le serveur !**\n"
