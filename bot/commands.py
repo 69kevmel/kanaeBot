@@ -12,6 +12,9 @@ from datetime import datetime, timedelta, timezone, date
 
 logger = logging.getLogger(__name__)
 
+# -----------------------
+# Utils / format helpers
+# -----------------------
 def format_pokeweed_display(name, power, hp, rarity, owned=0):
     stars = {
         "Commun": "🌿",
@@ -38,8 +41,24 @@ def format_pokeweed_display(name, power, hp, rarity, owned=0):
     status = "🆕 Nouvelle carte !" if owned == 0 else f"x{owned + 1}"
     return f"{stars.get(rarity, '🌿')} {flair[rarity]}{name}{flair_end[rarity]} — 💥 {power} | ❤️ {hp} | ✨ {rarity} ({status})"
 
+def _now_utc():
+    return datetime.now(timezone.utc)
+
+def _format_remaining(td: timedelta) -> str:
+    # retourne "Xh Ymin"
+    total_sec = int(td.total_seconds())
+    hours = total_sec // 3600
+    minutes = (total_sec % 3600) // 60
+    return f"{hours}h {minutes}min"
+
+# Anti double-clic /booster
+_inflight_boosters: set[int] = set()
+
 
 def setup(bot: commands.Bot):
+    # ---------------------------------------
+    # /hey
+    # ---------------------------------------
     @bot.tree.command(name="hey", description="Parle avec Kanaé, l'IA officielle du serveur !")
     @app_commands.describe(message="Ton message à envoyer")
     async def hey(interaction: discord.Interaction, message: str):
@@ -69,6 +88,9 @@ def setup(bot: commands.Bot):
             response_text = "Yo, j'crois que Mistral est en PLS là, réessaye plus tard."
         await interaction.followup.send(response_text, ephemeral=True)
 
+    # ---------------------------------------
+    # /score
+    # ---------------------------------------
     @bot.tree.command(name="score", description="Affiche ton score ou celui d’un autre membre")
     @app_commands.describe(membre="Le membre dont tu veux voir le score")
     async def score_cmd(interaction: discord.Interaction, membre: discord.Member = None):
@@ -106,7 +128,9 @@ def setup(bot: commands.Bot):
                 ephemeral=True
             )
 
-
+    # ---------------------------------------
+    # /top-5
+    # ---------------------------------------
     @bot.tree.command(name="top-5", description="Affiche le top 5 des meilleurs fumeurs")
     async def top_5(interaction: discord.Interaction):
         message = await helpers.build_top5_message(
@@ -123,6 +147,9 @@ def setup(bot: commands.Bot):
             return
         await interaction.response.send_message(message, ephemeral=True)
 
+    # ---------------------------------------
+    # /set (admin)
+    # ---------------------------------------
     @bot.tree.command(name="set", description="Définit manuellement le total de points d'un utilisateur")
     @app_commands.describe(user_id="ID Discord de l'utilisateur", nouveau_total="Nombre de points à définir")
     async def set_points(interaction: discord.Interaction, user_id: str, nouveau_total: int):
@@ -138,129 +165,168 @@ def setup(bot: commands.Bot):
             logger.error("/set failed: %s", e)
             await interaction.response.send_message("❌ Une erreur est survenue en définissant le score.", ephemeral=True)
 
+    # ---------------------------------------
+    # /booster (SAFE)
+    # ---------------------------------------
     @bot.tree.command(name="booster", description="Ouvre un booster de 4 Pokéweeds aléatoires !")
     async def booster(interaction: discord.Interaction):
         user_id = interaction.user.id
-        now = datetime.now(timezone.utc)
+        now = _now_utc()
 
-        async with database.db_pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                # Vérifie le cooldown 12h
-                await cur.execute("SELECT last_opened FROM booster_cooldowns WHERE user_id=%s;", (user_id,))
-                row = await cur.fetchone()
-                if row and row[0]:
-                    last_time = row[0].replace(tzinfo=timezone.utc) if row[0].tzinfo is None else row[0]
-                    if (now - last_time) < timedelta(hours=12):
-                        remaining = timedelta(hours=12) - (now - last_time)
-                        hours = remaining.seconds // 3600
-                        minutes = (remaining.seconds % 3600) // 60
-                        await interaction.response.send_message(
-                            f"🕒 Tu dois attendre encore **{hours}h {minutes}min** avant d’ouvrir un nouveau booster frérot.",
-                            ephemeral=True
+        # Ack immédiat pour éviter Unknown interaction
+        try:
+            await interaction.response.defer(ephemeral=True, thinking=True)
+        except discord.InteractionResponded:
+            pass
+        except Exception as e:
+            logger.warning("Impossible de defer l'interaction: %s", e)
+
+        # Anti double-clic
+        if user_id in _inflight_boosters:
+            try:
+                await interaction.followup.send("Patience frérot, ton booster est déjà en cours d’ouverture…", ephemeral=True)
+            except Exception:
+                pass
+            return
+        _inflight_boosters.add(user_id)
+
+        try:
+            # 1) Vérifier cooldown 12h (sans le poser)
+            async with database.db_pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute("SELECT last_opened FROM booster_cooldowns WHERE user_id=%s;", (user_id,))
+                    row = await cur.fetchone()
+                    if row and row[0]:
+                        last_time = row[0] if row[0].tzinfo else row[0].replace(tzinfo=timezone.utc)
+                        delta = now - last_time
+                        if delta < timedelta(hours=12):
+                            remaining = timedelta(hours=12) - delta
+                            await interaction.edit_original_response(
+                                content=f"🕒 Tu dois attendre encore **{_format_remaining(remaining)}** avant d’ouvrir un nouveau booster frérot."
+                            )
+                            return
+
+            # 2) Préparer le tirage et le texte (aucune écriture DB ici)
+            async with database.db_pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    # 4 pokéweeds aléatoires
+                    await cur.execute("SELECT id, name, hp, capture_points, power, rarity FROM pokeweeds ORDER BY RAND() LIMIT 4;")
+                    rewards = await cur.fetchall()
+
+                    points_by_rarity = {
+                        "Commun": 2,
+                        "Peu Commun": 4,
+                        "Rare": 8,
+                        "Très Rare": 12,
+                        "Légendaire": 15,
+                    }
+                    bonus_new = 5
+
+                    total_points = 0
+                    desc_lines = []
+                    # On calcule le statut "owned" AVANT insertion, pour afficher correctement
+                    pre_owned_counts = []
+                    for (pid, name, hp, cap_pts, power, rarity) in rewards:
+                        await cur.execute(
+                            "SELECT COUNT(*) FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s;",
+                            (user_id, pid)
                         )
-                        return
+                        count_row = await cur.fetchone()
+                        owned = count_row[0] if count_row else 0
+                        pre_owned_counts.append(owned)
 
-                # Mets à jour le cooldown
-                await cur.execute(
-                    "INSERT INTO booster_cooldowns (user_id, last_opened) VALUES (%s, %s) ON DUPLICATE KEY UPDATE last_opened = %s;",
-                    (user_id, now, now)
+                        pts = points_by_rarity.get(rarity, 0)
+                        if owned == 0:
+                            pts += bonus_new
+                        total_points += pts
+
+                        desc_lines.append(
+                            format_pokeweed_display(name=name, power=power, hp=hp, rarity=rarity, owned=owned)
+                        )
+
+            desc = "\n".join(desc_lines)
+            border = "🌀" * 12
+
+            # 3) Envoyer à l'utilisateur AVANT toute écriture DB
+            try:
+                await interaction.edit_original_response(
+                    content=(
+                        "🃏 Ouverture du booster... ✨\n\n"
+                        f"{desc}\n\n"
+                        f"🎖️ Tu gagnes **{total_points} points** dans le concours Kanaé !"
+                    )
                 )
-
-                # Tire 4 Pokéweeds aléatoires
-                await cur.execute("SELECT * FROM pokeweeds ORDER BY RAND() LIMIT 4;")
-                rewards = await cur.fetchall()
-
-                # Barème points par rareté
-                points_by_rarity = {
-                    "Commun": 2,
-                    "Peu Commun": 4,
-                    "Rare": 8,
-                    "Très Rare": 12,
-                    "Légendaire": 15,
-                }
-                bonus_new = 5
-
-                total_points = 0
-                desc_lines = []
-
-                for r in rewards:
-                    pokeweed_id = r[0]
-                    name = r[1]
-                    hp = r[2]
-                    capture_points = r[3]
-                    power = r[4]
-                    rarity = r[5]
-
-                    # Check si déjà possédé
-                    await cur.execute(
-                        "SELECT COUNT(*) FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s;",
-                        (user_id, pokeweed_id)
+            except discord.NotFound as e:
+                # Interaction perdue → ne rien consommer
+                logger.error("edit_original_response NotFound (Unknown interaction): %s", e)
+                try:
+                    await interaction.followup.send(
+                        content=(
+                            "🃏 Ouverture du booster... ✨\n\n"
+                            f"{desc}\n\n"
+                            f"🎖️ Tu gagnes **{total_points} points** dans le concours Kanaé !"
+                        ),
+                        ephemeral=True
                     )
-                    count = await cur.fetchone()
-                    owned = count[0] if count else 0
+                except Exception as e2:
+                    logger.error("followup.send failed too, NOT consuming booster: %s", e2)
+                    return  # rien n'est consommé
+            except Exception as e:
+                logger.error("Failed to send booster result, NOT consuming booster: %s", e)
+                return  # rien n'est consommé
 
-                    # Ajoute la carte
-                    await cur.execute(
-                        "INSERT INTO user_pokeweeds (user_id, pokeweed_id, capture_date) VALUES (%s, %s, NOW());",
-                        (user_id, pokeweed_id)
+            # 4) Si on est ici, l'utilisateur a reçu son booster -> on peut appliquer les effets en DB
+            try:
+                async with database.db_pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        # Insérer les cartes gagnées
+                        for (pid, name, hp, cap_pts, power, rarity) in rewards:
+                            await cur.execute(
+                                "INSERT INTO user_pokeweeds (user_id, pokeweed_id, capture_date) VALUES (%s, %s, NOW());",
+                                (user_id, pid)
+                            )
+                        # Ajouter les points
+                        await database.add_points(database.db_pool, user_id, total_points)
+
+                        # Poser/mettre à jour le cooldown (12h)
+                        await cur.execute(
+                            "INSERT INTO booster_cooldowns (user_id, last_opened) VALUES (%s, %s) "
+                            "ON DUPLICATE KEY UPDATE last_opened = VALUES(last_opened);",
+                            (user_id, now)
+                        )
+            except Exception as e:
+                # L'utilisateur a vu le booster, mais l'écriture a raté -> on log + msg info
+                logger.error("Failed to persist booster effects: %s", e)
+                try:
+                    await interaction.followup.send(
+                        "⚠️ Ton booster a été envoyé mais j’ai eu un souci pour enregistrer en base. "
+                        "Si tu vois un comportement bizarre, ping un modo 🙏",
+                        ephemeral=True
                     )
+                except Exception:
+                    pass
+                return  # on n'annonce pas publiquement si la DB a échoué
 
-                    # Calcule les points
-                    pts = points_by_rarity.get(rarity, 0)
-                    if owned == 0:
-                        pts += bonus_new
-                    total_points += pts
-
-                    # Format texte
-                    status = "🆕 Nouvelle carte !" if owned == 0 else f"x{owned + 1}"
-                    stars = {
-                        "Commun": "🌿",
-                        "Peu Commun": "🌱🌿",
-                        "Rare": "🌟",
-                        "Très Rare": "💎",
-                        "Légendaire": "🌈👑",
-                    }
-                    flair = {
-                        "Commun": "",
-                        "Peu Commun": "*",
-                        "Rare": "**",
-                        "Très Rare": "***",
-                        "Légendaire": "__**"
-                    }
-                    flair_end = flair  # même fermeture que l'ouverture
-                    desc_lines.append(
-                        f"{stars.get(rarity, '🌿')} {flair[rarity]}{name}{flair_end[rarity]} "
-                        f"— 💥 {power} | ❤️ {hp} | ✨ {rarity} ({status})"
+            # 5) Annonce publique (best effort)
+            try:
+                channel = interaction.guild.get_channel(config.CHANNEL_POKEWEED_ID)
+                if channel:
+                    await channel.send(
+                        f"{border}\n\n"
+                        f"📦 **{interaction.user.display_name}** a ouvert un booster :\n\n"
+                        f"{desc}\n\n"
+                        f"🎖️ +{total_points} points pour le concours !\n\n"
+                        f"{border}"
                     )
+            except Exception as e:
+                logger.warning("Public booster announce failed: %s", e)
 
-                # Ajoute les points au score global
-                await database.add_points(database.db_pool, user_id, total_points)
+        finally:
+            _inflight_boosters.discard(user_id)
 
-        # Messages
-        desc = "\n".join(desc_lines)
-        border = "🌀" * 12
-
-        # DM privé stylisé
-        await interaction.response.send_message(
-            f"🃏 Ouverture du booster... ✨\n\n"
-            f"{desc}\n\n"
-            f"🎖️ Tu gagnes **{total_points} points** dans le concours Kanaé !",
-            ephemeral=True
-        )
-
-        # Annonce publique
-        channel = interaction.guild.get_channel(config.CHANNEL_POKEWEED_ID)
-        if channel:
-            await channel.send(
-                f"{border}\n\n"
-                f"📦 **{interaction.user.display_name}** a ouvert un booster :\n\n"
-                f"{desc}\n\n"
-                f"🎖️ +{total_points} points pour le concours !\n\n"
-                f"{border}"
-            )
-
-
-   
+    # ---------------------------------------
+    # /capture
+    # ---------------------------------------
     @bot.tree.command(name="capture", description="Tente de capturer le Pokéweed sauvage")
     async def capture(interaction: discord.Interaction):
         if not state.current_spawn:
@@ -288,7 +354,10 @@ def setup(bot: commands.Bot):
         channel = interaction.channel
         await channel.send(f"🎉 Bravo {interaction.user.mention} pour avoir capturé **{pokeweed[1]}** ! +{pokeweed[3]} points 🌿")
         await interaction.response.send_message("Tu l’as capturé !", ephemeral=True)
- 
+
+    # ---------------------------------------
+    # /pokedex
+    # ---------------------------------------
     @bot.tree.command(name="pokedex", description="Affiche ton Pokédex personnel ou celui d’un autre")
     @app_commands.describe(membre="@ Le membre dont tu veux voir le Pokédex")
     async def pokedex(interaction: discord.Interaction, membre: discord.Member = None):
@@ -391,7 +460,9 @@ def setup(bot: commands.Bot):
             if chunk.strip():
                 await interaction.followup.send(chunk, ephemeral=True)
 
-
+    # ---------------------------------------
+    # /init-pokeweeds (admin)
+    # ---------------------------------------
     @bot.tree.command(name="init-pokeweeds", description="Insère les 31 Pokéweed de base")
     async def init_pokeweeds(interaction: discord.Interaction):
         if not interaction.user.guild_permissions.administrator:
@@ -439,6 +510,9 @@ def setup(bot: commands.Bot):
 
         await interaction.response.send_message("🌿 31 Pokéweed insérés !", ephemeral=True)
 
+    # ---------------------------------------
+    # /reset-scores (admin)
+    # ---------------------------------------
     @bot.tree.command(name="reset-scores", description="Réinitialise tous les scores du concours à 0 (ADMIN uniquement)")
     async def reset_scores(interaction: discord.Interaction):
         if not interaction.user.guild_permissions.administrator:
