@@ -232,7 +232,7 @@ def setup(bot: commands.Bot):
                         total_points += pts
 
                         # Image
-                        rarity_folder = rarity.lower().replace(" ", "")
+                        rarity_folder = rarity.lower().replace(" ", "").replace("é", "e")
                         filename = sanitize_filename(name) + ".png"
                         image_path = f"./assets/pokeweed/saison-1/{rarity_folder}/{filename}"
                         embed = discord.Embed(
@@ -345,7 +345,7 @@ def setup(bot: commands.Bot):
 
             for name, hp, cap_pts, power, rarity_val, total, last_date in self.pokes:
                 filename = sanitize_filename(name) + ".png"
-                path = f"./assets/pokeweed/saison-1/{rarity_val.lower().replace(' ', '')}/{filename}"
+                path = f"./assets/pokeweed/saison-1/{rarity_val.lower().replace(' ', '').replace('é', 'e')}/{filename}"
                 date_str = last_date.strftime("%d %b %Y") if last_date else "?"
 
                 embed = discord.Embed(
