@@ -359,11 +359,9 @@ def setup(bot: commands.Bot):
             embeds.append(embed)
 
         # Envoi par lots de 10 maximum (limite Discord)
-        for i in range(0, len(embeds), 10):
-            chunk_embeds = embeds[i:i+10]
-            chunk_files = files[i:i+10]
-            await interaction.followup.send(embeds=chunk_embeds, files=chunk_files, ephemeral=True)
-            await asyncio.sleep(0.5)
+        for embed, file in zip(embeds, files):
+            await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+            await asyncio.sleep(0.3)
 
         # Statistiques globales
         unique_count = len(rows)
@@ -374,7 +372,6 @@ def setup(bot: commands.Bot):
             f"📊 **Stats de collection de {target.display_name}**\n✅ Cartes uniques : {unique_count}/{total_available}\n📦 Total : {total_count} cartes\n❗ Il manque encore **{missing}** Pokéweeds.",
             ephemeral=True
         )
-
 
     # ---------------------------------------
     # /init-pokeweeds (admin)
