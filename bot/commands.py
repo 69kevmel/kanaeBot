@@ -362,6 +362,13 @@ def setup(bot: commands.Bot):
                     await interaction.followup.send(embed=embed, ephemeral=True)
 
                 await asyncio.sleep(0.2)
+                
+                # 🔁 Réaffiche les boutons à la fin
+                await interaction.followup.send(
+                    content="👀 Tu veux regarder une autre rareté ? Clique sur un autre bouton ci-dessous.",
+                    view=RarityView(self.pokemons_by_rarity, self.user),
+                    ephemeral=True
+                )
 
     class RarityView(discord.ui.View):
         def __init__(self, pokemons_by_rarity: dict, user: discord.User):
@@ -403,10 +410,12 @@ def setup(bot: commands.Bot):
         missing = total_available - unique_count
 
         summary = (
+            "👆 Clique sur les boutons ci-dessous pour afficher les Pokéweeds par rareté.\n\n"
             f"📘 **Pokédex de {target.display_name}**\n\n"
             f"✅ Cartes uniques : {unique_count}/{total_available}\n"
             f"📦 Total : {total_count} cartes\n"
-            f"❗ Il manque encore **{missing}** Pokéweeds pour compléter le Pokédex !"
+            f"❗ Il manque encore **{missing}** Pokéweeds pour compléter le Pokédex !\n\n"
+            "\u200b"
         )
 
         await interaction.response.send_message(
