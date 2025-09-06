@@ -168,161 +168,105 @@ def setup(bot: commands.Bot):
     # ---------------------------------------
     # /booster (SAFE)
     # ---------------------------------------
+    # ✅ VERSION SÛRE ET ILLUSTRÉE DU /booster — commands.py
+    _inflight_boosters: set[int] = set()
+
+    def sanitize_filename(name: str) -> str:
+        return name.lower().replace(" ", "").replace("é", "e")
+
     @bot.tree.command(name="booster", description="Ouvre un booster de 4 Pokéweeds aléatoires !")
     async def booster(interaction: discord.Interaction):
         user_id = interaction.user.id
-        now = _now_utc()
+        now = datetime.now(timezone.utc)
 
-        # Ack immédiat pour éviter Unknown interaction
+        # Anti spam/double clic
+        if user_id in _inflight_boosters:
+            await interaction.response.send_message("⏳ Attends un peu frérot, booster déjà en cours...", ephemeral=True)
+            return
+
+        _inflight_boosters.add(user_id)
         try:
             await interaction.response.defer(ephemeral=True, thinking=True)
-        except discord.InteractionResponded:
-            pass
-        except Exception as e:
-            logger.warning("Impossible de defer l'interaction: %s", e)
 
-        # Anti double-clic
-        if user_id in _inflight_boosters:
-            try:
-                await interaction.followup.send("Patience frérot, ton booster est déjà en cours d’ouverture…", ephemeral=True)
-            except Exception:
-                pass
-            return
-        _inflight_boosters.add(user_id)
-
-        try:
-            # 1) Vérifier cooldown 12h (sans le poser)
+            # Cooldown check
             async with database.db_pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     await cur.execute("SELECT last_opened FROM booster_cooldowns WHERE user_id=%s;", (user_id,))
                     row = await cur.fetchone()
                     if row and row[0]:
-                        last_time = row[0] if row[0].tzinfo else row[0].replace(tzinfo=timezone.utc)
-                        delta = now - last_time
-                        if delta < timedelta(hours=12):
-                            remaining = timedelta(hours=12) - delta
-                            await interaction.edit_original_response(
-                                content=f"🕒 Tu dois attendre encore **{_format_remaining(remaining)}** avant d’ouvrir un nouveau booster frérot."
-                            )
+                        last_time = row[0].replace(tzinfo=timezone.utc) if row[0].tzinfo is None else row[0]
+                        if (now - last_time) < timedelta(hours=12):
+                            remaining = timedelta(hours=12) - (now - last_time)
+                            h, m = remaining.seconds // 3600, (remaining.seconds % 3600) // 60
+                            await interaction.edit_original_response(content=f"🕒 Attends encore **{h}h {m}min** pour un nouveau booster.")
                             return
 
-            # 2) Préparer le tirage et le texte (aucune écriture DB ici)
+            # Tirage
             async with database.db_pool.acquire() as conn:
                 async with conn.cursor() as cur:
-                    # 4 pokéweeds aléatoires
-                    await cur.execute("SELECT id, name, hp, capture_points, power, rarity FROM pokeweeds ORDER BY RAND() LIMIT 4;")
+                    await cur.execute("SELECT * FROM pokeweeds ORDER BY RAND() LIMIT 4;")
                     rewards = await cur.fetchall()
 
-                    points_by_rarity = {
-                        "Commun": 2,
-                        "Peu Commun": 4,
-                        "Rare": 8,
-                        "Très Rare": 12,
-                        "Légendaire": 15,
-                    }
-                    bonus_new = 5
+            points_by_rarity = {"Commun": 2, "Peu Commun": 4, "Rare": 8, "Très Rare": 12, "Légendaire": 15}
+            bonus_new = 5
+            embeds = []
+            files = []
+            total_points = 0
+            inserts = []
 
-                    total_points = 0
-                    desc_lines = []
-                    # On calcule le statut "owned" AVANT insertion, pour afficher correctement
-                    pre_owned_counts = []
-                    for (pid, name, hp, cap_pts, power, rarity) in rewards:
-                        await cur.execute(
-                            "SELECT COUNT(*) FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s;",
-                            (user_id, pid)
-                        )
-                        count_row = await cur.fetchone()
-                        owned = count_row[0] if count_row else 0
-                        pre_owned_counts.append(owned)
+            async with database.db_pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    for pokeweed in rewards:
+                        pid, name, hp, cap_pts, power, rarity = pokeweed[:6]
+                        await cur.execute("SELECT COUNT(*) FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s;", (user_id, pid))
+                        owned = (await cur.fetchone())[0]
 
+                        # Points
                         pts = points_by_rarity.get(rarity, 0)
                         if owned == 0:
                             pts += bonus_new
                         total_points += pts
 
-                        desc_lines.append(
-                            format_pokeweed_display(name=name, power=power, hp=hp, rarity=rarity, owned=owned)
+                        # Image
+                        rarity_folder = rarity.lower().replace(" ", "")
+                        filename = sanitize_filename(name) + ".png"
+                        image_path = f"./assets/pokeweed/saison-1/{rarity_folder}/{filename}"
+                        embed = discord.Embed(
+                            title=f"{name} 🌿",
+                            description=f"💥 Attaque : {power}\n❤️ Vie : {hp}\n✨ Rareté : {rarity}\n📦 {'🆕 Nouvelle carte !' if owned == 0 else f'x{owned + 1}'}",
+                            color=discord.Color.green()
                         )
 
-            desc = "\n".join(desc_lines)
-            border = "🌀" * 12
+                        try:
+                            file = discord.File(image_path, filename=filename)
+                            embed.set_image(url=f"attachment://{filename}")
+                            files.append(file)
+                        except Exception:
+                            embed.description += "\n⚠️ Image non trouvée."
 
-            # 3) Envoyer à l'utilisateur AVANT toute écriture DB
-            try:
-                await interaction.edit_original_response(
-                    content=(
-                        "🃏 Ouverture du booster... ✨\n\n"
-                        f"{desc}\n\n"
-                        f"🎖️ Tu gagnes **{total_points} points** dans le concours Kanaé !"
-                    )
-                )
-            except discord.NotFound as e:
-                # Interaction perdue → ne rien consommer
-                logger.error("edit_original_response NotFound (Unknown interaction): %s", e)
-                try:
-                    await interaction.followup.send(
-                        content=(
-                            "🃏 Ouverture du booster... ✨\n\n"
-                            f"{desc}\n\n"
-                            f"🎖️ Tu gagnes **{total_points} points** dans le concours Kanaé !"
-                        ),
-                        ephemeral=True
-                    )
-                except Exception as e2:
-                    logger.error("followup.send failed too, NOT consuming booster: %s", e2)
-                    return  # rien n'est consommé
-            except Exception as e:
-                logger.error("Failed to send booster result, NOT consuming booster: %s", e)
-                return  # rien n'est consommé
+                        embeds.append(embed)
+                        inserts.append((user_id, pid))
 
-            # 4) Si on est ici, l'utilisateur a reçu son booster -> on peut appliquer les effets en DB
-            try:
-                async with database.db_pool.acquire() as conn:
-                    async with conn.cursor() as cur:
-                        # Insérer les cartes gagnées
-                        for (pid, name, hp, cap_pts, power, rarity) in rewards:
-                            await cur.execute(
-                                "INSERT INTO user_pokeweeds (user_id, pokeweed_id, capture_date) VALUES (%s, %s, NOW());",
-                                (user_id, pid)
-                            )
-                        # Ajouter les points
-                        await database.add_points(database.db_pool, user_id, total_points)
+            # Affichage user
+            await interaction.edit_original_response(content=f"🃏 Booster ouvert ! 🎉 Tu gagnes **{total_points} points** dans le concours Kanaé !")
+            for embed, file in zip(embeds, files):
+                await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+                await asyncio.sleep(0.3)
 
-                        # Poser/mettre à jour le cooldown (12h)
-                        await cur.execute(
-                            "INSERT INTO booster_cooldowns (user_id, last_opened) VALUES (%s, %s) "
-                            "ON DUPLICATE KEY UPDATE last_opened = VALUES(last_opened);",
-                            (user_id, now)
-                        )
-            except Exception as e:
-                # L'utilisateur a vu le booster, mais l'écriture a raté -> on log + msg info
-                logger.error("Failed to persist booster effects: %s", e)
-                try:
-                    await interaction.followup.send(
-                        "⚠️ Ton booster a été envoyé mais j’ai eu un souci pour enregistrer en base. "
-                        "Si tu vois un comportement bizarre, ping un modo 🙏",
-                        ephemeral=True
-                    )
-                except Exception:
-                    pass
-                return  # on n'annonce pas publiquement si la DB a échoué
+            # MAJ DB finale seulement si tout s'est bien passé
+            async with database.db_pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    for uid, pid in inserts:
+                        await cur.execute("INSERT INTO user_pokeweeds (user_id, pokeweed_id, capture_date) VALUES (%s, %s, NOW());", (uid, pid))
+                    await database.add_points(database.db_pool, user_id, total_points)
+                    await cur.execute("INSERT INTO booster_cooldowns (user_id, last_opened) VALUES (%s, %s) ON DUPLICATE KEY UPDATE last_opened = %s;", (user_id, now, now))
 
-            # 5) Annonce publique (best effort)
-            try:
-                channel = interaction.guild.get_channel(config.CHANNEL_POKEWEED_ID)
-                if channel:
-                    await channel.send(
-                        f"{border}\n\n"
-                        f"📦 **{interaction.user.display_name}** a ouvert un booster :\n\n"
-                        f"{desc}\n\n"
-                        f"🎖️ +{total_points} points pour le concours !\n\n"
-                        f"{border}"
-                    )
-            except Exception as e:
-                logger.warning("Public booster announce failed: %s", e)
-
+        except Exception as e:
+            logger.exception(f"Erreur dans /booster pour {user_id} : {e}")
+            await interaction.followup.send("❌ Une erreur est survenue. Réessaie un peu plus tard, rien n'a été consommé.", ephemeral=True)
         finally:
             _inflight_boosters.discard(user_id)
+
 
     # ---------------------------------------
     # /capture
@@ -358,21 +302,25 @@ def setup(bot: commands.Bot):
     # ---------------------------------------
     # /pokedex
     # ---------------------------------------
+    # ✅ VERSION ILLUSTRÉE DU /pokedex
+    # À intégrer dans commands.py — affiche chaque Pokéweed possédé avec image (embed par carte)
+
+    def sanitize_filename(name: str) -> str:
+        return name.lower().replace(" ", "").replace("é", "e")
+
     @bot.tree.command(name="pokedex", description="Affiche ton Pokédex personnel ou celui d’un autre")
-    @app_commands.describe(membre="@ Le membre dont tu veux voir le Pokédex")
+    @app_commands.describe(membre="Le membre dont tu veux voir le Pokédex")
     async def pokedex(interaction: discord.Interaction, membre: discord.Member = None):
         target = membre if membre else interaction.user
 
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("""
-                    SELECT 
-                        p.name, p.hp, p.capture_points, p.power, p.rarity,
-                        COUNT(*) as total,
-                        MAX(up.capture_date) as last_capture
-                    FROM user_pokeweeds up 
-                    JOIN pokeweeds p ON up.pokeweed_id = p.id 
-                    WHERE up.user_id=%s 
+                    SELECT p.name, p.hp, p.capture_points, p.power, p.rarity,
+                        COUNT(*) as total, MAX(up.capture_date) as last_capture
+                    FROM user_pokeweeds up
+                    JOIN pokeweeds p ON up.pokeweed_id = p.id
+                    WHERE up.user_id=%s
                     GROUP BY p.id;
                 """, (target.id,))
                 rows = await cur.fetchall()
@@ -381,84 +329,52 @@ def setup(bot: commands.Bot):
                 total_available = (await cur.fetchone())[0]
 
         if not rows:
-            await interaction.response.send_message(
-                f"📘 {target.display_name} n’a capturé aucun Pokéweed...", ephemeral=True
-            )
+            await interaction.response.send_message(f"📘 {target.display_name} n’a capturé aucun Pokéweed...", ephemeral=True)
             return
 
-        # Format d’affichage stylé
-        def format_entry(name, hp, points, power, rarity, total, last_date):
-            stars = {
-                "Commun": "🌿",
-                "Peu Commun": "🌱🌿",
-                "Rare": "🌟",
-                "Très Rare": "💎",
-                "Légendaire": "🌈👑",
-            }
-            flair = {
-                "Commun": "",
-                "Peu Commun": "*",
-                "Rare": "**",
-                "Très Rare": "***",
-                "Légendaire": "__**"
-            }
-            flair_end = {
-                "Commun": "",
-                "Peu Commun": "*",
-                "Rare": "**",
-                "Très Rare": "***",
-                "Légendaire": "**__"
-            }
-            last_seen = last_date.strftime("%d %b %Y") if last_date else "?"
-            return (
-                f"{stars.get(rarity, '🌿')} {flair[rarity]}{name}{flair_end[rarity]}\n"
-                f"• Rareté : {rarity}\n"
-                f"• 💥 Attaque : {power}\n"
-                f"• ❤️ Vie : {hp}\n"
-                f"• ✨ Points de capture : +{points}\n"
-                f"• 📦 Possédé : x{total}\n"
-                f"• 📅 Dernière capture : {last_seen}\n"
+        # ENVOI AVEC IMAGES
+        await interaction.response.defer(ephemeral=True)
+        embeds = []
+        files = []
+
+        for name, hp, cap_pts, power, rarity, total, last_date in rows:
+            date_str = last_date.strftime("%d %b %Y") if last_date else "?"
+            rarity_folder = rarity.lower().replace(" ", "")
+            filename = sanitize_filename(name) + ".png"
+            path = f"./assets/pokeweed/saison-1/{rarity_folder}/{filename}"
+
+            embed = discord.Embed(
+                title=f"{name} 🌿",
+                description=f"💥 Attaque : {power}\n❤️ Vie : {hp}\n✨ Points de capture : +{cap_pts}\n📦 Possédé : x{total}\n📅 Dernière capture : {date_str}\n⭐ Rareté : {rarity}",
+                color=discord.Color.green()
             )
 
-        entries = "\n".join([
-            format_entry(name, hp, points, power, rarity, total, last_date)
-            for name, hp, points, power, rarity, total, last_date in rows
-        ])
+            if os.path.exists(path):
+                file = discord.File(path, filename=filename)
+                embed.set_image(url=f"attachment://{filename}")
+                files.append(file)
+            else:
+                embed.description += "\n⚠️ Image non trouvée."
 
+            embeds.append(embed)
+
+        # Envoi par lots de 10 maximum (limite Discord)
+        for i in range(0, len(embeds), 10):
+            chunk_embeds = embeds[i:i+10]
+            chunk_files = files[i:i+10]
+            await interaction.followup.send(embeds=chunk_embeds, files=chunk_files, ephemeral=True)
+            await asyncio.sleep(0.5)
+
+        # Statistiques globales
         unique_count = len(rows)
-        total_count = sum([total for *_, total, _ in rows])
+        total_count = sum([r[5] for r in rows])
         missing = total_available - unique_count
 
-        summary = (
-            f"\n📊 **Statistiques de collection**\n"
-            f"✅ Cartes différentes : {unique_count}/{total_available}\n"
-            f"📦 Total de cartes collectées : {total_count}\n"
-            f"❗ Il te manque encore **{missing}** Pokéweed{'s' if missing > 1 else ''} pour compléter le Pokédex !"
+        await interaction.followup.send(
+            f"📊 **Stats de collection de {target.display_name}**\n✅ Cartes uniques : {unique_count}/{total_available}\n📦 Total : {total_count} cartes\n❗ Il manque encore **{missing}** Pokéweeds.",
+            ephemeral=True
         )
 
-        full_message = f"📘 Pokédex de {target.display_name} :\n\n{entries}{summary}"
-        MAX_LENGTH = 2000
-
-        if len(full_message) <= MAX_LENGTH:
-            await interaction.response.send_message(full_message, ephemeral=True)
-        else:
-            # Envoie la première partie d'annonce
-            await interaction.response.send_message(
-                "⚠️ Ton Pokédex est trop grand pour un seul message ! Je t'envoie en plusieurs parties :", ephemeral=True
-            )
-
-            # Découpe intelligent par lignes
-            lines = full_message.split("\n")
-            chunk = ""
-            for line in lines:
-                if len(chunk) + len(line) + 1 > MAX_LENGTH:
-                    await interaction.followup.send(chunk, ephemeral=True)
-                    await asyncio.sleep(0.3)  # ✅ Petit délai pour éviter spam error
-                    chunk = ""
-                chunk += line + "\n"
-
-            if chunk.strip():
-                await interaction.followup.send(chunk, ephemeral=True)
 
     # ---------------------------------------
     # /init-pokeweeds (admin)
