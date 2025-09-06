@@ -373,6 +373,9 @@ def setup(bot: commands.Bot):
     class RarityView(discord.ui.View):
         def __init__(self, pokemons_by_rarity: dict, user: discord.User):
             super().__init__(timeout=300)
+            self.pokemons_by_rarity = pokemons_by_rarity  # ✅ Ajouté
+            self.user = user  # ✅ Ajouté
+
             for rarity, emoji in RARITY_ORDER:
                 pokes = pokemons_by_rarity.get(rarity, [])
                 self.add_item(RarityButton(rarity, emoji, user, pokes))
