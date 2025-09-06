@@ -333,6 +333,7 @@ def setup(bot: commands.Bot):
             self.pokes = pokes
 
         async def callback(self, interaction: discord.Interaction):
+            await interaction.response.defer(ephemeral=True)
             if interaction.user.id != self.user.id:
                 await interaction.response.send_message("❌ Ce Pokédex n’est pas le tien.", ephemeral=True)
                 return
