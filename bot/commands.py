@@ -324,50 +324,50 @@ def setup(bot: commands.Bot):
         name = unicodedata.normalize('NFD', name).encode('ascii', 'ignore').decode('utf-8')
         return re.sub(r'[^a-zA-Z0-9]', '', name).lower()
 
+    class RarityButton(discord.ui.Button):
+        def __init__(self, rarity, emoji, user, pokes):
+            label = f"{emoji} {rarity}"
+            super().__init__(label=label, style=discord.ButtonStyle.secondary, custom_id=rarity)
+            self.rarity = rarity
+            self.user = user
+            self.pokes = pokes
+
+        async def callback(self, interaction: discord.Interaction):
+            if interaction.user.id != self.user.id:
+                await interaction.response.send_message("❌ Ce Pokédex n’est pas le tien.", ephemeral=True)
+                return
+
+            if not self.pokes:
+                await interaction.response.send_message(f"📭 Tu n’as aucun Pokéweed de rareté **{self.rarity}**.", ephemeral=True)
+                return
+
+            for name, hp, cap_pts, power, rarity, total, last_date in self.pokes:
+                filename = sanitize_filename(name) + ".png"
+                path = f"./assets/pokeweed/saison-1/{rarity.lower().replace(' ', '')}/{filename}"
+                date_str = last_date.strftime("%d %b %Y") if last_date else "?"
+
+                embed = discord.Embed(
+                    title=f"{name} 🌿",
+                    description=f"💥 Attaque : {power}\n❤️ Vie : {hp}\n✨ Capture : +{cap_pts}\n📦 Possédé : x{total}\n📅 Dernière capture : {date_str}\n⭐ Rareté : {rarity}",
+                    color=discord.Color.green()
+                )
+
+                if os.path.exists(path):
+                    file = discord.File(path, filename=filename)
+                    embed.set_image(url=f"attachment://{filename}")
+                    await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+                else:
+                    embed.description += "\n⚠️ Image non trouvée."
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+
+                await asyncio.sleep(0.2)
+
     class RarityView(discord.ui.View):
         def __init__(self, pokemons_by_rarity: dict, user: discord.User):
             super().__init__(timeout=300)
-            self.pokemons_by_rarity = pokemons_by_rarity
-            self.user = user
-
             for rarity, emoji in RARITY_ORDER:
-                self.add_item(self.make_button(rarity, emoji))
-
-        def make_button(self, rarity, emoji):
-            label = f"{emoji} {rarity}"
-
-            async def callback(interaction: discord.Interaction):
-                if interaction.user.id != self.user.id:
-                    await interaction.response.send_message("❌ Ce Pokédex n’est pas le tien.", ephemeral=True)
-                    return
-
-                pokes = self.pokemons_by_rarity.get(rarity, [])
-                if not pokes:
-                    await interaction.response.send_message(f"📭 Tu n’as encore aucun Pokéweed de rareté **{rarity}**.", ephemeral=True)
-                    return
-
-                for name, hp, cap_pts, power, rarity, total, last_date in pokes:
-                    filename = sanitize_filename(name) + ".png"
-                    path = f"./assets/pokeweed/saison-1/{rarity.lower().replace(' ', '')}/{filename}"
-                    date_str = last_date.strftime("%d %b %Y") if last_date else "?"
-
-                    embed = discord.Embed(
-                        title=f"{name} 🌿",
-                        description=f"💥 Attaque : {power}\n❤️ Vie : {hp}\n✨ Capture : +{cap_pts}\n📦 Possédé : x{total}\n📅 Dernière capture : {date_str}\n⭐ Rareté : {rarity}",
-                        color=discord.Color.green()
-                    )
-
-                    if os.path.exists(path):
-                        file = discord.File(path, filename=filename)
-                        embed.set_image(url=f"attachment://{filename}")
-                        await interaction.followup.send(embed=embed, file=file, ephemeral=True)
-                    else:
-                        embed.description += "\n⚠️ Image non trouvée."
-                        await interaction.followup.send(embed=embed, ephemeral=True)
-
-                    await asyncio.sleep(0.2)
-
-            return discord.ui.Button(label=label, style=discord.ButtonStyle.secondary, custom_id=rarity, row=0, callback=callback)
+                pokes = pokemons_by_rarity.get(rarity, [])
+                self.add_item(RarityButton(rarity, emoji, user, pokes))
 
     @bot.tree.command(name="pokedex", description="Affiche ton Pokédex personnel ou celui d’un autre")
     @app_commands.describe(membre="Le membre dont tu veux voir le Pokédex")
