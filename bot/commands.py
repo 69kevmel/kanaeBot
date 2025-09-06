@@ -310,9 +310,9 @@ def setup(bot: commands.Bot):
     # À intégrer dans commands.py — affiche chaque Pokéweed possédé avec image (embed par carte)
 
     def sanitize_filename(name: str) -> str:
-            name = unicodedata.normalize('NFD', name).encode('ascii', 'ignore').decode('utf-8')
-            name = re.sub(r'[^a-zA-Z0-9]', '', name)
-            return name.lower()
+        name = unicodedata.normalize('NFD', name).encode('ascii', 'ignore').decode('utf-8')
+        name = re.sub(r'[^a-zA-Z0-9]', '', name)
+        return name.lower()
 
     @bot.tree.command(name="pokedex", description="Affiche ton Pokédex personnel ou celui d’un autre")
     @app_commands.describe(membre="Le membre dont tu veux voir le Pokédex")
@@ -365,9 +365,12 @@ def setup(bot: commands.Bot):
             embeds.append(embed)
 
         # Envoi par lots de 10 maximum (limite Discord)
-        for embed, file in zip(embeds, files):
-            await interaction.followup.send(embed=embed, file=file, ephemeral=True)
-            await asyncio.sleep(0.3)
+        for i in range(len(embeds)):
+            try:
+                await interaction.followup.send(embed=embeds[i], file=files[i], ephemeral=True)
+                await asyncio.sleep(0.2)
+            except Exception as e:
+                logger.warning(f"❌ Failed to send embed {i}: {e}")
 
         # Statistiques globales
         unique_count = len(rows)
