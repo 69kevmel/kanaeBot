@@ -334,22 +334,23 @@ def setup(bot: commands.Bot):
 
         async def callback(self, interaction: discord.Interaction):
             await interaction.response.defer(ephemeral=True)
+
             if interaction.user.id != self.user.id:
-                await interaction.response.send_message("❌ Ce Pokédex n’est pas le tien.", ephemeral=True)
+                await interaction.followup.send("❌ Ce Pokédex n’est pas le tien.", ephemeral=True)
                 return
 
             if not self.pokes:
-                await interaction.response.send_message(f"📭 Tu n’as aucun Pokéweed de rareté **{self.rarity}**.", ephemeral=True)
+                await interaction.followup.send(f"📭 Tu n’as aucun Pokéweed de rareté **{self.rarity}**.", ephemeral=True)
                 return
 
-            for name, hp, cap_pts, power, rarity, total, last_date in self.pokes:
+            for name, hp, cap_pts, power, rarity_val, total, last_date in self.pokes:
                 filename = sanitize_filename(name) + ".png"
-                path = f"./assets/pokeweed/saison-1/{rarity.lower().replace(' ', '')}/{filename}"
+                path = f"./assets/pokeweed/saison-1/{rarity_val.lower().replace(' ', '')}/{filename}"
                 date_str = last_date.strftime("%d %b %Y") if last_date else "?"
 
                 embed = discord.Embed(
                     title=f"{name} 🌿",
-                    description=f"💥 Attaque : {power}\n❤️ Vie : {hp}\n✨ Capture : +{cap_pts}\n📦 Possédé : x{total}\n📅 Dernière capture : {date_str}\n⭐ Rareté : {rarity}",
+                    description=f"💥 Attaque : {power}\n❤️ Vie : {hp}\n✨ Capture : +{cap_pts}\n📦 Possédé : x{total}\n📅 Dernière capture : {date_str}\n⭐ Rareté : {rarity_val}",
                     color=discord.Color.green()
                 )
 
@@ -363,12 +364,12 @@ def setup(bot: commands.Bot):
 
                 await asyncio.sleep(0.2)
 
-                # 🔁 Réaffiche les boutons à la fin
-                await interaction.followup.send(
-                    content="👀 Tu veux regarder une autre rareté ? Clique sur un autre bouton ci-dessous.",
-                    view=RarityView(self.view.pokemons_by_rarity, self.view.user),
-                    ephemeral=True
-                )
+            # ✅ Une fois TOUS les pokéweeds envoyés, on redonne les boutons
+            await interaction.followup.send(
+                content="👀 Tu veux regarder une autre rareté ? Clique sur un autre bouton ci-dessous.",
+                view=RarityView(self.view.pokemons_by_rarity, self.view.user),
+                ephemeral=True
+            )
 
     class RarityView(discord.ui.View):
         def __init__(self, pokemons_by_rarity: dict, user: discord.User):
