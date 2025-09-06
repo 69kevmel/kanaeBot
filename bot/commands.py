@@ -6,6 +6,8 @@ import aiohttp
 from discord.ext import commands
 from discord import app_commands
 import asyncio
+import unicodedata
+import re
 
 from . import config, database, helpers, state
 from datetime import datetime, timedelta, timezone, date
@@ -172,7 +174,9 @@ def setup(bot: commands.Bot):
     _inflight_boosters: set[int] = set()
 
     def sanitize_filename(name: str) -> str:
-        return name.lower().replace(" ", "").replace("é", "e")
+        name = unicodedata.normalize('NFD', name).encode('ascii', 'ignore').decode('utf-8')
+        name = re.sub(r'[^a-zA-Z0-9]', '', name)
+        return name.lower()
 
     @bot.tree.command(name="booster", description="Ouvre un booster de 4 Pokéweeds aléatoires !")
     async def booster(interaction: discord.Interaction):
@@ -306,7 +310,9 @@ def setup(bot: commands.Bot):
     # À intégrer dans commands.py — affiche chaque Pokéweed possédé avec image (embed par carte)
 
     def sanitize_filename(name: str) -> str:
-        return name.lower().replace(" ", "").replace("é", "e")
+            name = unicodedata.normalize('NFD', name).encode('ascii', 'ignore').decode('utf-8')
+            name = re.sub(r'[^a-zA-Z0-9]', '', name)
+            return name.lower()
 
     @bot.tree.command(name="pokedex", description="Affiche ton Pokédex personnel ou celui d’un autre")
     @app_commands.describe(membre="Le membre dont tu veux voir le Pokédex")
