@@ -210,6 +210,33 @@ def setup(bot: commands.Bot):
                 async with conn.cursor() as cur:
                     await cur.execute("SELECT * FROM pokeweeds ORDER BY RAND() LIMIT 4;")
                     rewards = await cur.fetchall()
+                    pokeweed_channel = interaction.client.get_channel(config.CHANNEL_POKEWEED_ID)
+
+                    stars = {
+                        "Commun": "🌿",
+                        "Peu Commun": "🌱🌿",
+                        "Rare": "🌟",
+                        "Très Rare": "💎",
+                        "Légendaire": "🌈👑",
+                    }
+
+                    resume_lines = [
+                        "🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀",  # ✅ ligne d'emojis en haut
+                        f"🎉 {interaction.user.mention} a ouvert un **booster** et a obtenu :",
+                        ""
+                    ]
+
+                    for pokeweed in rewards:
+                        pid, name, hp, cap_pts, power, rarity = pokeweed[:6]
+                        resume_lines.append(f"{stars.get(rarity, '🌿')} {name} — 💥 {power} | ❤️ {hp} | ✨ {rarity}")
+
+                    resume_lines.append("")
+                    resume_lines.append("🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀")  # ✅ ligne d'emojis en bas
+
+                    resume_message = "\n".join(resume_lines)
+
+                    if pokeweed_channel:
+                        await pokeweed_channel.send(resume_message)
 
             points_by_rarity = {"Commun": 2, "Peu Commun": 4, "Rare": 8, "Très Rare": 12, "Légendaire": 15}
             bonus_new = 5
