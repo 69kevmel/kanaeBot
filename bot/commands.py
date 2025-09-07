@@ -497,3 +497,23 @@ def setup(bot: commands.Bot):
         except Exception as e:
             logger.error("/reset-scores failed: %s", e)
             await interaction.response.send_message("❌ Erreur lors de la remise à zéro des scores.", ephemeral=True)
+
+    # ---------------------------------------
+    # /spawn (admin)
+    # ---------------------------------------
+    @bot.tree.command(name="spawn", description="Force le spawn immédiat d’un Pokéweed (admin only)")
+    async def spawn_cmd(interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Admin uniquement.", ephemeral=True)
+            return
+
+        from . import tasks  # importe tes tâches (dont spawn_pokeweed)
+
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await tasks.spawn_pokeweed(bot)
+            await interaction.followup.send("✅ Un Pokéweed vient de spawn dans le channel dédié !", ephemeral=True)
+        except Exception as e:
+            logger.exception("Erreur dans /spawn : %s", e)
+            await interaction.followup.send(f"❌ Une erreur est survenue : {e}", ephemeral=True)
+
