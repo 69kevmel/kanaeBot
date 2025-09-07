@@ -221,7 +221,8 @@ def setup(bot: commands.Bot):
                     }
 
                     resume_lines = [
-                        "🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀",  # ✅ ligne d'emojis en haut
+                        "🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀",
+                        "",
                         f"🎉 {interaction.user.mention} a ouvert un **booster** et a obtenu :",
                         ""
                     ]
