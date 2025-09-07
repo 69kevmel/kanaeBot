@@ -202,17 +202,15 @@ async def spawn_pokeweed(bot: discord.Client):
 
     async with database.db_pool.acquire() as conn:
         async with conn.cursor() as cur:
-            await cur.execute("SELECT * FROM pokeweeds ORDER BY RAND() LIMIT 1;")
+            # ✅ sélection explicite pour éviter d'autres confusions
+            await cur.execute("SELECT id, name, hp, capture_points, power, rarity FROM pokeweeds ORDER BY RAND() LIMIT 1;")
             pokeweed = await cur.fetchone()
 
     if not pokeweed:
         logger.warning("❗ Aucun Pokéweed trouvé en base.")
         return
 
-    name = pokeweed[1]
-    hp = pokeweed[2]
-    power = pokeweed[5]
-    rarity = pokeweed[6]
+    pid, name, hp, cap_pts, power, rarity = pokeweed
 
     rarity_folder = rarity.lower().replace(" ", "")  # ex: "Très Rare" → "trèsrare"
     filename = name.lower().replace(" ", "").replace("é", "e") + ".png"
@@ -222,7 +220,11 @@ async def spawn_pokeweed(bot: discord.Client):
 
     embed = discord.Embed(
         title="👀 Un Pokéweed sauvage est apparu !",
-        description=f"🌿 **{name}**\n💥 Attaque : {power} | ❤️ Vie : {hp} | ✨ Rareté : {rarity}\n\n⚡ Tape **/capture** pour tenter ta chance !",
+        description=(
+            f"🌿 **{name}**\n"
+            f"💥 Attaque : {power} | ❤️ Vie : {hp} | ✨ Rareté : {rarity}\n\n"
+            f"⚡ Tape **/capture** pour tenter ta chance !"
+        ),
         color=0x88CC88
     )
     embed.set_image(url=f"attachment://{filename}")
@@ -231,5 +233,6 @@ async def spawn_pokeweed(bot: discord.Client):
 
     state.current_spawn = pokeweed
     state.capture_winner = None
+
 
 
