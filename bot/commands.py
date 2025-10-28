@@ -566,7 +566,9 @@ def setup(bot: commands.Bot):
         # Le message affiché
         lines = [
             "🥦 **Choisis ta vibe !** 🍫",
+            "",
             "Impose ton choix, et montre à tout le monde ce que tu préfères 🧑‍🚀",
+            "",
             f"{config.EMOJI_WEED} Team WEED → {weed_role.mention}",
             f"{config.EMOJI_SHIT} Team SHIT → {shit_role.mention}",
             "",
