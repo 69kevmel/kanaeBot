@@ -60,3 +60,5 @@ SHIT_ROLE_ID = 1432724461676789841       # ← remplace par l'ID du rôle SHIT
 # Emojis utilisés (unicode)
 EMOJI_WEED = "🥦"
 EMOJI_SHIT = "🍫"
+
+REACTION_ROLE_MESSAGE_ID = 1432733041566027907
