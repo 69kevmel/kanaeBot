@@ -545,8 +545,6 @@ def setup(bot: commands.Bot):
             logger.exception("Erreur dans /spawn : %s", e)
             await interaction.followup.send(f"❌ Une erreur est survenue : {e}", ephemeral=True)
 
-    from discord import app_commands
-
     @bot.tree.command(name="vibe-setup", description="(Admin) Publie le message de rôles (weed/shit) et pose les réactions")
     async def vibe_setup(interaction: discord.Interaction):
         if not interaction.user.guild_permissions.administrator:
