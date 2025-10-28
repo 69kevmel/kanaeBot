@@ -5,4 +5,4 @@ invite_cache = {}
 current_spawn = None
 capture_winner = None
 booster_in_progress = {}
-
+weed_shit_message_id = 0

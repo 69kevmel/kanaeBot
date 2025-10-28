@@ -330,3 +330,73 @@ def setup(bot: commands.Bot):
                     "INSERT INTO thread_daily_creations (user_id, date) VALUES (%s, %s);",
                     (user_id, today)
                 )
+    @bot.event
+    async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+        if payload.guild_id is None or payload.user_id is None:
+            return
+        if payload.user_id == bot.user.id:
+            return
+
+        # On cible le bon message
+        target_id = config.REACTION_ROLE_MESSAGE_ID or state.weed_shit_message_id
+        if not target_id or payload.message_id != target_id:
+            return
+
+        guild = bot.get_guild(payload.guild_id)
+        member = guild.get_member(payload.user_id)
+        if not member:
+            return
+
+        emoji = payload.emoji.name
+        role_id = None
+        if emoji == config.EMOJI_WEED:
+            role_id = config.WEED_ROLE_ID
+        elif emoji == config.EMOJI_SHIT:
+            role_id = config.SHIT_ROLE_ID
+        else:
+            return
+
+        role = guild.get_role(role_id)
+        if role is None:
+            return
+
+        # Ajoute le rôle si pas déjà présent
+        if role not in member.roles:
+            try:
+                await member.add_roles(role, reason="Reaction role add (weed/shit)")
+            except discord.HTTPException:
+                pass
+
+    @bot.event
+    async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
+        if payload.guild_id is None or payload.user_id is None:
+            return
+
+        target_id = config.REACTION_ROLE_MESSAGE_ID or state.weed_shit_message_id
+        if not target_id or payload.message_id != target_id:
+            return
+
+        guild = bot.get_guild(payload.guild_id)
+        member = guild.get_member(payload.user_id)
+        if not member:
+            return
+
+        emoji = payload.emoji.name
+        role_id = None
+        if emoji == config.EMOJI_WEED:
+            role_id = config.WEED_ROLE_ID
+        elif emoji == config.EMOJI_SHIT:
+            role_id = config.SHIT_ROLE_ID
+        else:
+            return
+
+        role = guild.get_role(role_id)
+        if role is None:
+            return
+
+        # Retire le rôle s'il est présent
+        if role in member.roles:
+            try:
+                await member.remove_roles(role, reason="Reaction role remove (weed/shit)")
+            except discord.HTTPException:
+                pass

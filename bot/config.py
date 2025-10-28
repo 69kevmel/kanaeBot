@@ -50,3 +50,13 @@ else:
     MYSQLUSER = os.getenv('MYSQLUSER', 'root')
     MYSQLPASSWORD = os.getenv('MYSQLPASSWORD', '')
     MYSQLDATABASE = os.getenv('MYSQLDATABASE', 'kanaebot')
+
+
+# --- Reaction roles (weed/shit)
+REACTION_ROLE_CHANNEL_ID = 1432728685353500913  # ← ton salon cible
+WEED_ROLE_ID = 1432725093582377032       # ← remplace par l'ID du rôle WEED
+SHIT_ROLE_ID = 1432724461676789841       # ← remplace par l'ID du rôle SHIT
+
+# Emojis utilisés (unicode)
+EMOJI_WEED = "🥦"
+EMOJI_SHIT = "🍫"

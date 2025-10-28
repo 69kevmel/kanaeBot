@@ -545,3 +545,49 @@ def setup(bot: commands.Bot):
             logger.exception("Erreur dans /spawn : %s", e)
             await interaction.followup.send(f"❌ Une erreur est survenue : {e}", ephemeral=True)
 
+    from discord import app_commands
+
+    @bot.tree.command(name="vibe-setup", description="(Admin) Publie le message de rôles (weed/shit) et pose les réactions")
+    async def vibe_setup(interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Admin uniquement.", ephemeral=True)
+            return
+
+        channel = bot.get_channel(config.REACTION_ROLE_CHANNEL_ID)
+        if channel is None:
+            await interaction.response.send_message("❌ Salon introuvable (vérifie REACTION_ROLE_CHANNEL_ID).", ephemeral=True)
+            return
+
+        guild = interaction.guild
+        weed_role = guild.get_role(config.WEED_ROLE_ID)
+        shit_role = guild.get_role(config.SHIT_ROLE_ID)
+        if not weed_role or not shit_role:
+            await interaction.response.send_message("❌ Rôle(s) introuvable(s) (vérifie WEED_ROLE_ID / SHIT_ROLE_ID).", ephemeral=True)
+            return
+
+        # Le message affiché
+        lines = [
+            "🥦 **Choisis ta vibe !** 🍫",
+            "Impose ton choix, et montre à tout le monde ce que tu préfères 🧑‍🚀",
+            f"{config.EMOJI_WEED} Team WEED → {weed_role.mention}",
+            f"{config.EMOJI_SHIT} Team SHIT → {shit_role.mention}",
+            "",
+            "_Ajoute la réaction que tu souhaites pour **prendre** le rôle, retire-la pour **l’enlever** ✅ ._",
+        ]
+        await interaction.response.defer(ephemeral=True)
+        message = await channel.send("\n".join(lines))
+
+        # Ajoute les réactions
+        for emoji in (config.EMOJI_WEED, config.EMOJI_SHIT):
+            try:
+                await message.add_reaction(emoji)
+            except Exception:
+                pass
+
+        # Sauvegarde runtime + feedback
+        from . import state
+        state.weed_shit_message_id = message.id
+        await interaction.followup.send(
+            f"✅ Reaction roles prêts dans {channel.mention}.\nMessage ID: `{message.id}`",
+            ephemeral=True
+        )
