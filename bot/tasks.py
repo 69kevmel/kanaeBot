@@ -184,15 +184,33 @@ async def fetch_and_send_news(bot: discord.Client):
 logger.info("🌀 Tâche fetch_and_send_news terminée.")
 
 
-
 async def spawn_pokeweed_loop(bot: discord.Client):
     await bot.wait_until_ready()
+    logger.info("🌱 La boucle de spawn Pokéweed est lancée !")
+
+    logger.info("🚀 Spawn de démarrage (test)...")
+    await spawn_pokeweed(bot)
 
     while True:
-        delay = random.randint(14400, 18000)  # entre 4h et 5h en secondes
-        logger.info(f"⏳ Prochain spawn dans {delay // 60} minutes...")
-        await asyncio.sleep(delay)
-        await spawn_pokeweed(bot)
+        delay = random.randint(14400, 18000)  # Entre 4h et 5h
+        logger.info(f"⏳ Prochain spawn Pokéweed dans {delay // 60} minutes.")
+
+        try:
+            # On attend d'abord
+            await asyncio.sleep(delay)
+
+            # On tente le spawn protégé
+            try:
+                await spawn_pokeweed(bot)
+            except Exception as e:
+                logger.error(f"❌ Erreur durant le spawn (la boucle continue) : {e}")
+        
+        except asyncio.CancelledError:
+            logger.info("🛑 Boucle Pokéweed arrêtée.")
+            break
+        except Exception as e:
+            logger.error(f"❌ Erreur critique dans le timer Pokéweed : {e}")
+            await asyncio.sleep(60) # Sécurité anti-spam en cas de gros crash
 
 async def spawn_pokeweed(bot: discord.Client):
     channel = bot.get_channel(config.CHANNEL_POKEWEED_ID)
