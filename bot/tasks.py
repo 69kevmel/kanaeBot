@@ -186,31 +186,26 @@ logger.info("🌀 Tâche fetch_and_send_news terminée.")
 
 async def spawn_pokeweed_loop(bot: discord.Client):
     await bot.wait_until_ready()
-    logger.info("🌱 La boucle de spawn Pokéweed est lancée !")
-
-    logger.info("🚀 Spawn de démarrage (test)...")
-    await spawn_pokeweed(bot)
+    logger.info("🌱 Boucle de spawn Pokéweed démarrée !")
 
     while True:
-        delay = random.randint(14400, 18000)  # Entre 4h et 5h
+        # Délai entre 4h et 5h
+        delay = random.randint(14400, 18000)
         logger.info(f"⏳ Prochain spawn Pokéweed dans {delay // 60} minutes.")
-
+        
         try:
-            # On attend d'abord
             await asyncio.sleep(delay)
-
-            # On tente le spawn protégé
+            # PROTECTION ANTI-CRASH ICI :
             try:
                 await spawn_pokeweed(bot)
             except Exception as e:
-                logger.error(f"❌ Erreur durant le spawn (la boucle continue) : {e}")
-        
+                logger.error(f"⚠️ Erreur lors du spawn (on continue quand même) : {e}")
+                
         except asyncio.CancelledError:
-            logger.info("🛑 Boucle Pokéweed arrêtée.")
             break
         except Exception as e:
-            logger.error(f"❌ Erreur critique dans le timer Pokéweed : {e}")
-            await asyncio.sleep(60) # Sécurité anti-spam en cas de gros crash
+            logger.error(f"❌ Erreur critique boucle timer : {e}")
+            await asyncio.sleep(60)
 
 async def spawn_pokeweed(bot: discord.Client):
     channel = bot.get_channel(config.CHANNEL_POKEWEED_ID)
@@ -220,7 +215,6 @@ async def spawn_pokeweed(bot: discord.Client):
 
     async with database.db_pool.acquire() as conn:
         async with conn.cursor() as cur:
-            # ✅ sélection explicite pour éviter d'autres confusions
             await cur.execute("SELECT id, name, hp, capture_points, power, rarity FROM pokeweeds ORDER BY RAND() LIMIT 1;")
             pokeweed = await cur.fetchone()
 
@@ -230,11 +224,22 @@ async def spawn_pokeweed(bot: discord.Client):
 
     pid, name, hp, cap_pts, power, rarity = pokeweed
 
-    rarity_folder = rarity.lower().replace(" ", "")  # ex: "Très Rare" → "trèsrare"
-    filename = name.lower().replace(" ", "").replace("é", "e") + ".png"
+    # --- CORRECTION DE LA GESTION DES DOSSIERS ---
+    # On enlève les accents aussi sur le dossier pour éviter de chercher 'légendaire'
+    # .replace("é", "e") transforme 'Légendaire' en 'legendaire'
+    rarity_folder = rarity.lower().replace(" ", "").replace("é", "e").replace("è", "e") 
+    
+    filename = name.lower().replace(" ", "").replace("é", "e").replace("è", "e") + ".png"
+    
+    # Chemin final
     image_path = f"./assets/pokeweed/saison-1/{rarity_folder}/{filename}"
 
-    file = discord.File(image_path, filename=filename)
+    try:
+        file = discord.File(image_path, filename=filename)
+    except FileNotFoundError:
+        # Si l'image n'est pas trouvée, on log l'erreur mais on ne crash pas le bot
+        logger.error(f"❌ IMAGE MANQUANTE : {image_path} (Le spawn est annulé pour ce tour)")
+        return
 
     embed = discord.Embed(
         title="👀 Un Pokéweed sauvage est apparu !",
@@ -251,6 +256,5 @@ async def spawn_pokeweed(bot: discord.Client):
 
     state.current_spawn = pokeweed
     state.capture_winner = None
-
 
 
