@@ -574,15 +574,16 @@ def setup(bot: commands.Bot):
                 is_following = "does not follow" not in follow_text.lower() and "error" not in follow_text.lower() and "not found" not in follow_text.lower()
                 
                 if is_following:
-                    # ON DONNE LA RÉCOMPENSE (Seulement la première fois)
-                    can_reward = await database.check_and_reward_social_link(database.db_pool, user_id, platform)
+                    # ✅ CORRECTION ICI : on a bien ajouté 'clean_pseudo' en 4ème argument
+                    can_reward = await database.check_and_reward_social_link(database.db_pool, user_id, platform, clean_pseudo)
+                    
                     if can_reward:
                         await database.add_points(database.db_pool, user_id, 200)
                         msg += f"\n🎁 **BOOM !** On a vu que tu follow déjà la chaîne ! Tu gagnes **+200 points** direct ! 🌿"
                     else:
                         msg += "\nPrépare-toi à amasser les points pour le Kanaé d'Or quand le live sera ON 📺🌿"
                 else:
-                    msg += f"\n⚠️ **Attention :** Tu ne follow pas encore la chaîne **{config.TWITCH_CHANNEL}** !\n👉 Follow le live et tape la commande `/claim-twitch` pour récupérer tes 200 points !"
+                    msg += f"\n⚠️ **Attention :** Tu ne follow pas encore la chaîne **{config.TWITCH_CHANNEL}** !\n👉 Follow le live et tape la commande `/refresh-points` pour récupérer tes 200 points !"
                 
                 await interaction.followup.send(msg, ephemeral=True)
             else:
