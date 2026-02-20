@@ -107,6 +107,9 @@ def setup(bot: commands.Bot):
         tasks.update_voice_points.start(bot)
         tasks.fetch_and_send_news.start(bot)
         bot.loop.create_task(tasks.spawn_pokeweed_loop(bot))
+        # Lancement du bot Twitch en tâche de fond
+        from .twitch_bot import twitch_bot_instance
+        bot.loop.create_task(twitch_bot_instance.start())
 
     @bot.event
     async def on_member_update(before: discord.Member, after: discord.Member):
