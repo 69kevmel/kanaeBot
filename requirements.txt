@@ -3,4 +3,4 @@ aiomysql>=0.0.21
 aiohttp>=3.8.0
 feedparser>=6.0.0
 cryptography>=3.4
-twitchio>=2.9.0
+twitchio==2.9.3
