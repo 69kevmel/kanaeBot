@@ -129,6 +129,14 @@ async def ensure_tables(pool):
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """
             )
+            await cur.execute(
+                """
+                CREATE TABLE social_refresh (
+                    user_id BIGINT PRIMARY KEY,
+                    last_refresh DATETIME
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                """
+            )
 
             # Pokeweed tables
             await cur.execute("""
