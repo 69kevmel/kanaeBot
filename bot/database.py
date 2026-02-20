@@ -91,6 +91,15 @@ async def ensure_tables(pool):
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """
                 )
+            # Twitch links table
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS twitch_links (
+                    user_id BIGINT PRIMARY KEY,
+                    twitch_username VARCHAR(255) UNIQUE NOT NULL
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                """
+            )
 
             # Pokeweed tables
             await cur.execute("""
@@ -248,3 +257,26 @@ async def get_last_recap_date(pool):
             row = await cur.fetchone()
             return row[0] if row and row[0] else None
 
+# Twitch account linking functions
+async def link_twitch_account(pool, user_id, twitch_username):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            # On insert, et si le mec avait déjà lié un compte, on met à jour avec le nouveau
+            await cur.execute(
+                """
+                INSERT INTO twitch_links (user_id, twitch_username) 
+                VALUES (%s, %s)
+                ON DUPLICATE KEY UPDATE twitch_username = %s;
+                """,
+                (int(user_id), twitch_username, twitch_username),
+            )
+
+async def get_discord_by_twitch(pool, twitch_username):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT user_id FROM twitch_links WHERE twitch_username = %s;",
+                (twitch_username,)
+            )
+            row = await cur.fetchone()
+            return row[0] if row else None

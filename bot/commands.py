@@ -525,6 +525,30 @@ def setup(bot: commands.Bot):
         except Exception as e:
             logger.error("/reset-scores failed: %s", e)
             await interaction.response.send_message("❌ Erreur lors de la remise à zéro des scores.", ephemeral=True)
+            
+    # ---------------------------------------
+    # /link-twitch
+    # ---------------------------------------
+    @bot.tree.command(name="link-twitch", description="Lie ton compte Twitch pour gagner des points sur le live !")
+    @app_commands.describe(pseudo_twitch="Ton pseudo exact sur Twitch (sans le @)")
+    async def link_twitch(interaction: discord.Interaction, pseudo_twitch: str):
+        user_id = interaction.user.id
+        # On nettoie un peu le pseudo (minuscules, sans espaces) pour éviter les bugs plus tard
+        clean_pseudo = pseudo_twitch.strip().lower()
+        
+        try:
+            await database.link_twitch_account(database.db_pool, user_id, clean_pseudo)
+            await interaction.response.send_message(
+                f"✅ Frérot, ton compte Discord est maintenant lié au pseudo Twitch **{clean_pseudo}** !\n"
+                f"Prépare-toi à amasser les points pour le Kanaé d'Or quand le live sera ON 📺🌿", 
+                ephemeral=True
+            )
+        except Exception as e:
+            logger.error("Erreur link-twitch: %s", e)
+            await interaction.response.send_message(
+                "❌ Oups, une erreur est survenue. Ce pseudo Twitch est peut-être déjà lié par quelqu'un d'autre ?", 
+                ephemeral=True
+            )
 
     # ---------------------------------------
     # /spawn (admin)
