@@ -664,23 +664,32 @@ def setup(bot: commands.Bot):
             else:
                 report.append(f"❌ **Twitch Follow :** Tu ne follow pas encore la chaîne.")
 
-            # --- VERIFICATION 2 : TWITCH SUB (1000 pts / MOIS) ---
+          # --- VERIFICATION 2 : TWITCH SUB (1000 pts / MOIS) ---
             sub_url = f"https://decapi.me/twitch/subage/{config.TWITCH_CHANNEL}/{twitch_user}"
             async with session.get(sub_url) as resp:
-                sub_text = await resp.text()
+                sub_text = await resp.text().lower()
             
-            is_subbed = "not subscribed" not in sub_text.lower() and "does not subscribe" not in sub_text.lower() and "error" not in sub_text.lower() and "not found" not in sub_text.lower()
+            # 🛡️ Nouvelle logique de vérification ultra-stricte
+            # On vérifie qu'on a bien des mots clés de succès ET qu'on n'a pas de mots clés d'échec
+            has_sub_info = any(word in sub_text for word in ["months", "days", "years", "tier", "subbed"])
+            is_negative = any(word in sub_text for word in ["not subscribed", "not found", "error", "broadcaster"])
+            
+            is_subbed = has_sub_info and not is_negative
             
             if is_subbed:
-                # 🌿 On utilise le nouveau système de Cooldown Mensuel !
+                # On utilise le système de Cooldown Mensuel
                 can_reward_sub = await database.claim_twitch_sub_reward(database.db_pool, user_id)
                 if can_reward_sub:
                     total_gained += 1000
                     report.append(f"💎 **Twitch Sub :** 🎁 +1000 points ! Masterclass le sub, t'es un roi ! 👑")
                 else:
-                    report.append(f"💎 **Twitch Sub :** Toujours abonné, mais tu as déjà récupéré tes points ce mois-ci ! Reviens le mois prochain. 🔥")
+                    report.append(f"💎 **Twitch Sub :** Toujours abonné, mais points déjà récupérés ce mois-ci ! 🌿")
             else:
-                report.append(f"❌ **Twitch Sub :** Tu n'es pas abonné (Sub) à la chaîne.")
+                # Petit message personnalisé si c'est le streamer qui teste
+                if "broadcaster" in sub_text:
+                    report.append(f"❌ **Twitch Sub :** T'es le boss du stream, tu ne peux pas être sub à toi-même ! 😂")
+                else:
+                    report.append(f"❌ **Twitch Sub :** Tu n'es pas abonné (Sub) à la chaîne.")
 
         # --- BILAN DES POINTS ---
         if total_gained > 0:
