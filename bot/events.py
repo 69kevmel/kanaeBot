@@ -116,12 +116,15 @@ def setup(bot: commands.Bot):
         # Vérifie si le rôle Nitro Booster a été ajouté
         if not before.premium_since and after.premium_since:
             try:
+                # 🎁 On donne les 500 points direct !
+                await database.add_points(database.db_pool, str(after.id), 500)
+                
                 channel = after.guild.get_channel(config.BLABLA_CHANNEL_ID)
                 if channel:
                     await channel.send(
                         f"💎 **{after.mention} vient de booster le serveur !**\n"
                         f"Merci infiniment pour ton soutien frérot, t'es un vrai 🔥🔥🔥\n"
-                        f"🌿 Grâce à toi, Kanaé monte encore d’un cran !"
+                        f"🎁 Boom ! **+500 points** Kanaé offerts au boss pour le soutien !"
                     )
             except Exception as e:
                 logger.warning("❌ Erreur lors du message de boost : %s", e)

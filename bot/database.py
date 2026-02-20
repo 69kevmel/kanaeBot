@@ -1,6 +1,6 @@
 import logging
 import aiomysql
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 
 from . import config
 
@@ -94,9 +94,29 @@ async def ensure_tables(pool):
             # Twitch links table
             await cur.execute(
                 """
-                CREATE TABLE IF NOT EXISTS twitch_links (
+                CREATE TABLE IF NOT EXISTS social_links (
+                    user_id BIGINT,
+                    platform VARCHAR(50),
+                    username VARCHAR(255),
+                    PRIMARY KEY(user_id, platform),
+                    UNIQUE(platform, username)
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                """
+            )
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS social_rewards (
+                    user_id BIGINT,
+                    platform VARCHAR(50),
+                    PRIMARY KEY(user_id, platform)
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                """
+            )
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS twitch_sub_claims (
                     user_id BIGINT PRIMARY KEY,
-                    twitch_username VARCHAR(255) UNIQUE NOT NULL
+                    last_claimed DATETIME
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """
             )
@@ -258,25 +278,89 @@ async def get_last_recap_date(pool):
             return row[0] if row and row[0] else None
 
 # Twitch account linking functions
-async def link_twitch_account(pool, user_id, twitch_username):
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            # On insert, et si le mec avait déjà lié un compte, on met à jour avec le nouveau
-            await cur.execute(
-                """
-                INSERT INTO twitch_links (user_id, twitch_username) 
-                VALUES (%s, %s)
-                ON DUPLICATE KEY UPDATE twitch_username = %s;
-                """,
-                (int(user_id), twitch_username, twitch_username),
-            )
-
-async def get_discord_by_twitch(pool, twitch_username):
+async def get_social_by_discord(pool, user_id, platform):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT user_id FROM twitch_links WHERE twitch_username = %s;",
-                (twitch_username,)
+                "SELECT username FROM social_links WHERE user_id = %s AND platform = %s;",
+                (int(user_id), platform)
             )
             row = await cur.fetchone()
             return row[0] if row else None
+
+async def get_discord_by_social(pool, username, platform):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT user_id FROM social_links WHERE username = %s AND platform = %s;",
+                (username, platform)
+            )
+            row = await cur.fetchone()
+            return row[0] if row else None
+
+async def link_social_account(pool, user_id, platform, username):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            # 1. Vérifie si le pseudo est pris par un AUTRE joueur sur cette plateforme
+            await cur.execute(
+                "SELECT user_id FROM social_links WHERE platform = %s AND username = %s;",
+                (platform, username)
+            )
+            row = await cur.fetchone()
+            if row and row[0] != int(user_id):
+                return False
+
+            # 2. Ajoute ou met à jour le lien
+            await cur.execute(
+                """
+                INSERT INTO social_links (user_id, platform, username) 
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE username = %s;
+                """,
+                (int(user_id), platform, username, username),
+            )
+            return True
+
+async def unlink_social_account(pool, user_id, platform):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "DELETE FROM social_links WHERE user_id = %s AND platform = %s;",
+                (int(user_id), platform)
+            )
+
+async def check_and_reward_social_link(pool, user_id, platform):
+    # Regarde si le joueur a déjà eu sa récompense pour ce réseau
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT 1 FROM social_rewards WHERE user_id = %s AND platform = %s;", (int(user_id), platform))
+            if not await cur.fetchone():
+                # On note qu'il a pris sa récompense
+                await cur.execute("INSERT INTO social_rewards (user_id, platform) VALUES (%s, %s);", (int(user_id), platform))
+                return True
+            return False
+        
+async def claim_twitch_sub_reward(pool, user_id):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT last_claimed FROM twitch_sub_claims WHERE user_id = %s;", (int(user_id),))
+            row = await cur.fetchone()
+            
+            now = datetime.now(timezone.utc)
+            
+            if row and row[0]:
+                last_claimed = row[0].replace(tzinfo=timezone.utc) if row[0].tzinfo is None else row[0]
+                # On vérifie si 28 jours se sont écoulés depuis le dernier claim de sub
+                if now - last_claimed < timedelta(days=28):
+                    return False # Trop tôt, il a déjà pris ses points pour ce mois-ci
+            
+            # S'il n'a jamais claim, ou si ça fait + de 28 jours : on met à jour la date et on l'autorise
+            await cur.execute(
+                """
+                INSERT INTO twitch_sub_claims (user_id, last_claimed) 
+                VALUES (%s, UTC_TIMESTAMP())
+                ON DUPLICATE KEY UPDATE last_claimed = UTC_TIMESTAMP();
+                """,
+                (int(user_id),)
+            )
+            return True

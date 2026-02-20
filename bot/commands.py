@@ -525,7 +525,7 @@ def setup(bot: commands.Bot):
         except Exception as e:
             logger.error("/reset-scores failed: %s", e)
             await interaction.response.send_message("❌ Erreur lors de la remise à zéro des scores.", ephemeral=True)
-            
+
     # ---------------------------------------
     # /link-twitch
     # ---------------------------------------
@@ -533,22 +533,154 @@ def setup(bot: commands.Bot):
     @app_commands.describe(pseudo_twitch="Ton pseudo exact sur Twitch (sans le @)")
     async def link_twitch(interaction: discord.Interaction, pseudo_twitch: str):
         user_id = interaction.user.id
-        # On nettoie un peu le pseudo (minuscules, sans espaces) pour éviter les bugs plus tard
+        platform = "twitch"
+        
+        # 1. On vérifie s'il est déjà lié
+        existing_twitch = await database.get_social_by_discord(database.db_pool, user_id, platform)
+        if existing_twitch:
+            await interaction.response.send_message(
+                f"⚠️ Frérot, ton compte Discord est déjà lié au pseudo Twitch **{existing_twitch}** !\n"
+                f"Si tu veux changer, utilise d'abord la commande `/unlink-twitch`.", 
+                ephemeral=True
+            )
+            return
+
         clean_pseudo = pseudo_twitch.strip().lower()
+        await interaction.response.defer(ephemeral=True) # On defer car l'API peut prendre 1 ou 2 secondes
         
         try:
-            await database.link_twitch_account(database.db_pool, user_id, clean_pseudo)
+            success = await database.link_social_account(database.db_pool, user_id, platform, clean_pseudo)
+            
+            if success:
+                msg = f"✅ Frérot, ton compte Discord est maintenant lié au pseudo Twitch **{clean_pseudo}** !\n"
+                
+                # 🌿 On vérifie s'il FOLLOW la chaîne avec DecAPI
+                async with aiohttp.ClientSession() as session:
+                    url = f"https://decapi.me/twitch/followage/{config.TWITCH_CHANNEL}/{clean_pseudo}"
+                    async with session.get(url) as resp:
+                        follow_text = await resp.text()
+                
+                # Si le texte contient ces mots, c'est qu'il ne follow pas ou que le pseudo n'existe pas
+                is_following = "does not follow" not in follow_text.lower() and "error" not in follow_text.lower() and "not found" not in follow_text.lower()
+                
+                if is_following:
+                    # ON DONNE LA RÉCOMPENSE (Seulement la première fois)
+                    can_reward = await database.check_and_reward_social_link(database.db_pool, user_id, platform)
+                    if can_reward:
+                        await database.add_points(database.db_pool, user_id, 200)
+                        msg += f"\n🎁 **BOOM !** On a vu que tu follow déjà la chaîne ! Tu gagnes **+200 points** direct ! 🌿"
+                    else:
+                        msg += "\nPrépare-toi à amasser les points pour le Kanaé d'Or quand le live sera ON 📺🌿"
+                else:
+                    msg += f"\n⚠️ **Attention :** Tu ne follow pas encore la chaîne **{config.TWITCH_CHANNEL}** !\n👉 Follow le live et tape la commande `/claim-twitch` pour récupérer tes 200 points !"
+                
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.followup.send(
+                    f"❌ Hop hop hop ! Le pseudo Twitch **{clean_pseudo}** est déjà utilisé par un autre membre du serveur.\n"
+                    f"Chacun sa batte, mets ton vrai pseudo !", 
+                    ephemeral=True
+                )
+        except Exception as e:
+            logger.error("Erreur link-twitch: %s", e)
+            await interaction.followup.send("❌ Une erreur est survenue en base de données. Réessaie plus tard.", ephemeral=True)
+
+    
+    # ---------------------------------------
+    # /unlink-twitch
+    # ---------------------------------------
+    @bot.tree.command(name="unlink-twitch", description="Délie ton compte Twitch de ton profil Discord")
+    async def unlink_twitch(interaction: discord.Interaction):
+        user_id = interaction.user.id
+        platform = "twitch"
+        
+        existing_twitch = await database.get_social_by_discord(database.db_pool, user_id, platform)
+        
+        if not existing_twitch:
             await interaction.response.send_message(
-                f"✅ Frérot, ton compte Discord est maintenant lié au pseudo Twitch **{clean_pseudo}** !\n"
-                f"Prépare-toi à amasser les points pour le Kanaé d'Or quand le live sera ON 📺🌿", 
+                "❌ T'as aucun compte Twitch lié pour le moment frérot. Tu peux utiliser `/link-twitch` pour en ajouter un !", 
+                ephemeral=True
+            )
+            return
+            
+        try:
+            await database.unlink_social_account(database.db_pool, user_id, platform)
+            await interaction.response.send_message(
+                f"🗑️ C'est fait ! Ton ancien pseudo Twitch (**{existing_twitch}**) a été délié de ton compte.\n"
+                f"Tu peux maintenant en lier un nouveau si tu veux.", 
                 ephemeral=True
             )
         except Exception as e:
-            logger.error("Erreur link-twitch: %s", e)
+            logger.error("Erreur unlink-twitch: %s", e)
             await interaction.response.send_message(
-                "❌ Oups, une erreur est survenue. Ce pseudo Twitch est peut-être déjà lié par quelqu'un d'autre ?", 
+                "❌ Une erreur est survenue lors de la suppression. Réessaie plus tard.", 
                 ephemeral=True
             )
+    # ---------------------------------------
+    # /refresh-points
+    # ---------------------------------------
+    @bot.tree.command(name="refresh-points", description="Vérifie tous tes réseaux (Follow, Sub Twitch...) pour récupérer tes points !")
+    async def refresh_points(interaction: discord.Interaction):
+        user_id = interaction.user.id
+        await interaction.response.defer(ephemeral=True) # On fait patienter car on check plusieurs trucs sur internet
+        
+        # 1. On récupère le pseudo Twitch lié
+        twitch_user = await database.get_social_by_discord(database.db_pool, user_id, "twitch")
+        
+        if not twitch_user:
+            await interaction.followup.send("❌ Tu n'as lié aucun compte pour le moment ! Commence par faire `/link-twitch`.", ephemeral=True)
+            return
+            
+        report = ["🔄 **COMPTE RENDU DE TES RÉSEAUX** 🔄", ""]
+        total_gained = 0
+        
+        async with aiohttp.ClientSession() as session:
+            # --- VERIFICATION 1 : TWITCH FOLLOW (200 pts) ---
+            follow_url = f"https://decapi.me/twitch/followage/{config.TWITCH_CHANNEL}/{twitch_user}"
+            async with session.get(follow_url) as resp:
+                follow_text = await resp.text()
+            
+            is_following = "does not follow" not in follow_text.lower() and "error" not in follow_text.lower() and "not found" not in follow_text.lower()
+            
+            if is_following:
+                # On check s'il a déjà eu la récompense
+                can_reward_follow = await database.check_and_reward_social_link(database.db_pool, user_id, "twitch")
+                if can_reward_follow:
+                    total_gained += 200
+                    report.append(f"✅ **Twitch Follow :** 🎁 +200 points ! Merci pour le soutien frérot !")
+                else:
+                    report.append(f"✅ **Twitch Follow :** Déjà récupéré ! 🌿")
+            else:
+                report.append(f"❌ **Twitch Follow :** Tu ne follow pas encore la chaîne.")
+
+            # --- VERIFICATION 2 : TWITCH SUB (1000 pts / MOIS) ---
+            sub_url = f"https://decapi.me/twitch/subage/{config.TWITCH_CHANNEL}/{twitch_user}"
+            async with session.get(sub_url) as resp:
+                sub_text = await resp.text()
+            
+            is_subbed = "not subscribed" not in sub_text.lower() and "does not subscribe" not in sub_text.lower() and "error" not in sub_text.lower() and "not found" not in sub_text.lower()
+            
+            if is_subbed:
+                # 🌿 On utilise le nouveau système de Cooldown Mensuel !
+                can_reward_sub = await database.claim_twitch_sub_reward(database.db_pool, user_id)
+                if can_reward_sub:
+                    total_gained += 1000
+                    report.append(f"💎 **Twitch Sub :** 🎁 +1000 points ! Masterclass le sub, t'es un roi ! 👑")
+                else:
+                    report.append(f"💎 **Twitch Sub :** Toujours abonné, mais tu as déjà récupéré tes points ce mois-ci ! Reviens le mois prochain. 🔥")
+            else:
+                report.append(f"❌ **Twitch Sub :** Tu n'es pas abonné (Sub) à la chaîne.")
+
+        # --- BILAN DES POINTS ---
+        if total_gained > 0:
+            await database.add_points(database.db_pool, user_id, total_gained)
+            report.append("")
+            report.append(f"🎉 **TOTAL GAGNÉ À L'INSTANT : +{total_gained} points !**")
+        else:
+            report.append("")
+            report.append("🤷‍♂️ Aucun nouveau point à récupérer pour le moment.")
+            
+        await interaction.followup.send("\n".join(report), ephemeral=True)
 
     # ---------------------------------------
     # /spawn (admin)
