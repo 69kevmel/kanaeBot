@@ -693,8 +693,8 @@ def setup(bot: commands.Bot):
             "💸 **Soutien & Croissance (Le Jackpot)**\n"
             "   • 💎 **Boost Discord :** +1000 points instantanés pour les boss qui soutiennent le serveur !\n"
             "   • 💜 **Twitch Sub :** +1000 points / mois (via `/refresh-points`)\n"
-            "   • 🤝 **Parrainage :** +250 points si ton invité reste au moins 2 heures\n\n"
             "   • 🔗 **Twitch Follow :** +200 points (1 seule fois, via `/refresh-points`)\n"
+            "   • 🤝 **Parrainage :** +250 points si ton invité reste au moins 2 heures\n\n"
             "🗣️ **Activité Discord (Grind Quotidien)**\n"
             "   • 🎙️ **Vocal :** +15 points toutes les 30 minutes passées en salon vocal\n"
             "   • 📸 **Médias :** +15 points par photo/vidéo postée (1 fois par jour et par salon spécial)\n"
@@ -730,6 +730,7 @@ def setup(bot: commands.Bot):
             "📺 **Twitch & Réseaux**\n"
             "   • `/link-twitch [pseudo]` : Relie ton compte Twitch à ton Discord pour gagner tes points.\n"
             "   • `/unlink-twitch` : Délie ton compte si tu t'es trompé de pseudo.\n"
+            "   • `/mes-reseaux` : Affiche la liste complète des comptes sociaux que tu as reliés à Kanaé.\n"
             "   • `/refresh-points` : Vérifie tes follows et tes subs Twitch pour récupérer tes points Kanaé !\n\n"
             "*(Seules tes commandes s'affichent, les commandes admin sont secrètes 🥷)*"
         )
