@@ -529,52 +529,49 @@ def setup(bot: commands.Bot):
     # ---------------------------------------
     # /link-twitch
     # ---------------------------------------
-    @bot.tree.command(name="link-twitch", description="Lie ton compte Twitch pour gagner des points sur le live !")
-    @app_commands.describe(pseudo_twitch="Ton pseudo exact sur Twitch (sans le @)")
+    @bot.tree.command(name="link-twitch", description="Lie ton compte Twitch")
+    @app_commands.describe(pseudo_twitch="Ton pseudo Twitch")
     async def link_twitch(interaction: discord.Interaction, pseudo_twitch: str):
         user_id = interaction.user.id
         platform = "twitch"
         clean_pseudo = pseudo_twitch.strip().lower()
 
+        # Sécurité Broadcaster
         if clean_pseudo == config.TWITCH_CHANNEL.lower():
-            await interaction.response.send_message(f"❌ Tu ne peux pas lier la chaîne officielle !", ephemeral=True)
+            await interaction.response.send_message("❌ Tu ne peux pas lier la chaîne officielle.", ephemeral=True)
             return
 
-        existing_twitch = await database.get_social_by_discord(database.db_pool, user_id, platform)
-        if existing_twitch:
-            await interaction.response.send_message(f"⚠️ Déjà lié à **{existing_twitch}** !", ephemeral=True)
-            return
-        
         await interaction.response.defer(ephemeral=True)
         
         try:
             success = await database.link_social_account(database.db_pool, user_id, platform, clean_pseudo)
             if success:
-                msg = f"✅ Compte Discord lié au pseudo Twitch **{clean_pseudo}** !\n"
-                
-                # 📡 ON CHANGE L'API ICI : on demande juste si c'est "true" ou "false"
                 async with aiohttp.ClientSession() as session:
-                    url = f"https://decapi.me/twitch/following/{config.TWITCH_CHANNEL}/{clean_pseudo}"
+                    # On utilise followage qui est plus bavard
+                    url = f"https://decapi.me/twitch/followage/{config.TWITCH_CHANNEL}/{clean_pseudo}"
                     async with session.get(url) as resp:
-                        follow_status = (await resp.text()).lower().strip()
+                        follow_text = (await resp.text()).lower()
                 
-                # Si l'API répond "true", c'est gagné
-                if follow_status == "true":
+                # --- DEBUG : Regarde ta console pour voir ça ! ---
+                print(f"DEBUG FOLLOW (Link) pour {clean_pseudo}: {follow_text}")
+
+                # Si le texte ne contient PAS "does not follow" et PAS "error", on considère que c'est bon
+                is_following = "not follow" not in follow_text and "error" not in follow_text and "not found" not in follow_text
+
+                if is_following:
                     can_reward = await database.check_and_reward_social_link(database.db_pool, user_id, platform, clean_pseudo)
                     if can_reward:
                         await database.add_points(database.db_pool, user_id, 200)
-                        msg += f"\n🎁 **BOOM !** Follow détecté ! Tu gagnes **+200 points** ! 🌿"
+                        await interaction.followup.send(f"✅ Lié à **{clean_pseudo}** ! 🎁 +200 points !", ephemeral=True)
                     else:
-                        msg += "\nPoints de follow déjà récupérés. 📺🌿"
+                        await interaction.followup.send(f"✅ Lié à **{clean_pseudo}** ! (Points déjà récupérés)", ephemeral=True)
                 else:
-                    msg += f"\n⚠️ **Attention :** On ne détecte pas ton follow. Vérifie que tu as bien follow **{config.TWITCH_CHANNEL}** et refais `/refresh-points` !"
-                
-                await interaction.followup.send(msg, ephemeral=True)
+                    await interaction.followup.send(f"✅ Lié à **{clean_pseudo}**, mais follow non détecté. Fais `/refresh-points` quand tu auras follow !", ephemeral=True)
             else:
-                await interaction.followup.send(f"❌ Ce pseudo Twitch est déjà utilisé !", ephemeral=True)
+                await interaction.followup.send("❌ Pseudo déjà utilisé par un autre membre.", ephemeral=True)
         except Exception as e:
-            logger.error("Erreur link-twitch: %s", e)
-            await interaction.followup.send("❌ Erreur technique.", ephemeral=True)
+            logger.error(f"Erreur link-twitch: {e}")
+            await interaction.followup.send("❌ Erreur base de données.", ephemeral=True)
 
     
     # ---------------------------------------
@@ -610,57 +607,56 @@ def setup(bot: commands.Bot):
     # ---------------------------------------
     # /refresh-points
     # ---------------------------------------
-    @bot.tree.command(name="refresh-points", description="Vérifie tes réseaux pour récupérer tes points !")
+    @bot.tree.command(name="refresh-points", description="Vérifie tes réseaux")
     async def refresh_points(interaction: discord.Interaction):
         user_id = interaction.user.id
         await interaction.response.defer(ephemeral=True)
         
         twitch_user = await database.get_social_by_discord(database.db_pool, user_id, "twitch")
         if not twitch_user:
-            await interaction.followup.send("❌ Aucun compte lié ! Fais `/link-twitch`.", ephemeral=True)
+            await interaction.followup.send("❌ Fais `/link-twitch` d'abord.", ephemeral=True)
             return
             
-        report = ["🔄 **COMPTE RENDU DE TES RÉSEAUX** 🔄", ""]
+        report = ["🔄 **VÉRIFICATION DES RÉSEAUX**", ""]
         total_gained = 0
         
         async with aiohttp.ClientSession() as session:
-            # --- 1. CHECK FOLLOW (API BINAIRE) ---
-            f_url = f"https://decapi.me/twitch/following/{config.TWITCH_CHANNEL}/{twitch_user}"
-            async with session.get(f_url) as resp:
-                follow_status = (await resp.text()).lower().strip()
+            # --- CHECK FOLLOW ---
+            async with session.get(f"https://decapi.me/twitch/followage/{config.TWITCH_CHANNEL}/{twitch_user}") as resp:
+                f_text = (await resp.text()).lower()
             
-            if follow_status == "true":
+            print(f"DEBUG FOLLOW (Refresh) pour {twitch_user}: {f_text}")
+            
+            # Condition simplifiée au maximum
+            if "not follow" not in f_text and "error" not in f_text and len(f_text) > 5:
                 if await database.check_and_reward_social_link(database.db_pool, user_id, "twitch", twitch_user):
                     total_gained += 200
-                    report.append(f"✅ **Twitch Follow :** 🎁 +200 points !")
+                    report.append("✅ **Twitch Follow :** +200 pts")
                 else:
-                    report.append(f"✅ **Twitch Follow :** Déjà récupéré ! 🌿")
+                    report.append("✅ **Twitch Follow :** Déjà validé")
             else:
-                report.append(f"❌ **Twitch Follow :** Toujours pas de follow détecté.")
+                report.append("❌ **Twitch Follow :** Non détecté")
 
-            # --- 2. CHECK SUB (API SUBAGE) ---
-            s_url = f"https://decapi.me/twitch/subage/{config.TWITCH_CHANNEL}/{twitch_user}"
-            async with session.get(s_url) as resp:
-                sub_text = (await resp.text()).lower()
+            # --- CHECK SUB ---
+            async with session.get(f"https://decapi.me/twitch/subage/{config.TWITCH_CHANNEL}/{twitch_user}") as resp:
+                s_text = (await resp.text()).lower()
             
-            # On cherche s'il y a une info de temps (months, days) et on exclut le reste
-            is_subbed = any(word in sub_text for word in ["month", "day", "year", "tier"]) and "not subscribed" not in sub_text and "broadcaster" not in sub_text
-            
-            if is_subbed:
+            print(f"DEBUG SUB pour {twitch_user}: {s_text}")
+
+            # On cherche juste si "not" n'est pas dedans
+            if "not sub" not in s_text and "error" not in s_text and len(s_text) > 5:
                 if await database.claim_twitch_sub_reward(database.db_pool, user_id):
                     total_gained += 1000
-                    report.append(f"💎 **Twitch Sub :** 🎁 +1000 points ! 👑")
+                    report.append("💎 **Twitch Sub :** +1000 pts")
                 else:
-                    report.append(f"💎 **Twitch Sub :** Points déjà pris ce mois-ci. 🔥")
+                    report.append("💎 **Twitch Sub :** Déjà pris ce mois-ci")
             else:
-                report.append(f"❌ **Twitch Sub :** Pas d'abonnement détecté.")
+                report.append("❌ **Twitch Sub :** Non détecté")
 
         if total_gained > 0:
             await database.add_points(database.db_pool, user_id, total_gained)
-            report.append(f"\n🎉 **TOTAL GAGNÉ : +{total_gained} points !**")
-        else:
-            report.append("\n🤷‍♂️ Rien à récupérer pour le moment.")
-            
+            report.append(f"\n🎁 **TOTAL : +{total_gained} pts**")
+        
         await interaction.followup.send("\n".join(report), ephemeral=True)
 
     # ---------------------------------------
