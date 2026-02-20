@@ -103,7 +103,8 @@ async def update_voice_points(bot: discord.Client):
                 user_id = str(member.id)
                 state.voice_times[user_id] = state.voice_times.get(user_id, 0) + 300
                 if state.voice_times[user_id] >= 1800:
-                    new_total = await database.add_points(database.db_pool, user_id, 5)
+                    # 🌿 On passe à 15 points toutes les 30 min !
+                    new_total = await database.add_points(database.db_pool, user_id, 15)
                     state.voice_times[user_id] -= 1800
                     if new_total in [10, 50, 100]:
                         await helpers.safe_send_dm(member, f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀")

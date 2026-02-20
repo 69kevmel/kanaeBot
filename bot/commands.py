@@ -644,7 +644,7 @@ def setup(bot: commands.Bot):
             
             if is_following:
                 # On check s'il a déjà eu la récompense
-                can_reward_follow = await database.check_and_reward_social_link(database.db_pool, user_id, "twitch")
+                can_reward_follow = await database.check_and_reward_social_link(database.db_pool, user_id, "twitch", twitch_user)
                 if can_reward_follow:
                     total_gained += 200
                     report.append(f"✅ **Twitch Follow :** 🎁 +200 points ! Merci pour le soutien frérot !")
@@ -681,6 +681,97 @@ def setup(bot: commands.Bot):
             report.append("🤷‍♂️ Aucun nouveau point à récupérer pour le moment.")
             
         await interaction.followup.send("\n".join(report), ephemeral=True)
+
+    # ---------------------------------------
+    # /help-concours
+    # ---------------------------------------
+    @bot.tree.command(name="help-concours", description="Affiche toutes les façons de gagner des points pour le Kanaé d'Or !")
+    async def help_concours(interaction: discord.Interaction):
+        message = (
+            "🏆 **GUIDE DU CONCOURS KANAÉ D'OR** 🏆\n\n"
+            "Voici toutes les façons d'amasser des points et de grimper au classement :\n\n"
+            "💸 **Soutien & Croissance (Le Jackpot)**\n"
+            "   • 💎 **Boost Discord :** +1000 points instantanés pour les boss qui soutiennent le serveur !\n"
+            "   • 💜 **Twitch Sub :** +1000 points / mois (via `/refresh-points`)\n"
+            "   • 🤝 **Parrainage :** +250 points si ton invité reste au moins 2 heures\n\n"
+            "   • 🔗 **Twitch Follow :** +200 points (1 seule fois, via `/refresh-points`)\n"
+            "🗣️ **Activité Discord (Grind Quotidien)**\n"
+            "   • 🎙️ **Vocal :** +15 points toutes les 30 minutes passées en salon vocal\n"
+            "   • 📸 **Médias :** +15 points par photo/vidéo postée (1 fois par jour et par salon spécial)\n"
+            "   • ✨ **Réactions :** +2 points par émoji reçu sur tes messages (1 émoji max par membre)\n\n"
+            "🧵 **Le Forum (Threads)**\n"
+            "   • 📝 **Créer un sujet :** +25 points (1 fois/jour)\n"
+            "   • 💬 **Participer :** +5 points pour ta première réponse sur un sujet\n"
+            "   • 👑 **Bonus Créateur :** +2 points à chaque fois que quelqu'un répond à ton sujet\n\n"
+            "📺 **Activité Twitch**\n"
+            "   • 💬 **Chat en live :** +1 point par message envoyé quand le live est ON (1 pt/minute max)\n\n"
+            "🌿 **Mini-Jeu Pokéweed**\n"
+            "   • 🃏 **Booster Quotidien :** +2 à +15 points par carte (et +5 pts bonus si c'est une nouvelle !)\n"
+            "   • ⚡ **Capture Sauvage :** +5 à +20 points si tu es le premier à faire `/capture`\n\n"
+            "🔥 *Que le meilleur gagne frérot !*"
+        )
+        await interaction.response.send_message(message, ephemeral=True)
+
+    # ---------------------------------------
+    # /help-commandes
+    # ---------------------------------------
+    @bot.tree.command(name="help-commandes", description="Liste et détaille toutes les commandes du KanaéBot !")
+    async def help_commandes(interaction: discord.Interaction):
+        message = (
+            "🛠️ **GUIDE DES COMMANDES KANAÉBOT** 🛠️\n\n"
+            "💬 **Général & IA**\n"
+            "   • `/hey [message]` : Discute avec l'IA officielle du serveur Kanaé.\n"
+            "   • `/score [@membre]` : Affiche ton score total, ton rang, ou celui d'un pote.\n"
+            "   • `/top-5` : Affiche le classement des 5 plus gros fumeurs du serveur.\n\n"
+            "🌿 **Mini-Jeu Pokéweed**\n"
+            "   • `/booster` : Ouvre un paquet de 4 cartes Pokéweed (disponible 1 fois toutes les 12h).\n"
+            "   • `/capture` : Dégaine le plus vite pour attraper le Pokéweed sauvage quand il apparaît.\n"
+            "   • `/pokedex [@membre]` : Affiche ta collection de cartes triées par rareté.\n\n"
+            "📺 **Twitch & Réseaux**\n"
+            "   • `/link-twitch [pseudo]` : Relie ton compte Twitch à ton Discord pour gagner tes points.\n"
+            "   • `/unlink-twitch` : Délie ton compte si tu t'es trompé de pseudo.\n"
+            "   • `/refresh-points` : Vérifie tes follows et tes subs Twitch pour récupérer tes points Kanaé !\n\n"
+            "*(Seules tes commandes s'affichent, les commandes admin sont secrètes 🥷)*"
+        )
+        await interaction.response.send_message(message, ephemeral=True)
+    
+    # ---------------------------------------
+    # /mes-reseaux
+    # ---------------------------------------
+    @bot.tree.command(name="mes-reseaux", description="Affiche la liste de tous tes réseaux sociaux liés à Kanaé")
+    async def mes_reseaux(interaction: discord.Interaction):
+        user_id = interaction.user.id
+        
+        # On récupère toute la liste de ses réseaux dans la base de données
+        socials = await database.get_all_socials_by_discord(database.db_pool, user_id)
+        
+        if not socials:
+            await interaction.response.send_message(
+                "❌ Tu n'as lié aucun réseau pour le moment frérot. Utilise `/link-twitch` pour commencer !",
+                ephemeral=True
+            )
+            return
+            
+        lines = ["🔗 **TES RÉSEAUX CONNECTÉS** 🔗", ""]
+        
+        # Un petit dictionnaire pour mettre des beaux emojis selon la plateforme
+        platform_emojis = {
+            "twitch": "🟪 Twitch",
+            "youtube": "🟥 YouTube",
+            "instagram": "📸 Instagram",
+            "tiktok": "🎵 TikTok",
+            "kick": "🟩 Kick"
+        }
+        
+        for platform, username in socials:
+            # Si on a un emoji prévu, on le met, sinon on met juste le nom avec une majuscule
+            display_name = platform_emojis.get(platform.lower(), f"🌐 {platform.capitalize()}")
+            lines.append(f"• {display_name} : **{username}**")
+            
+        lines.append("")
+        lines.append("*(N'oublie pas de faire `/refresh-points` pour récupérer tes récompenses !)*")
+        
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
     # ---------------------------------------
     # /spawn (admin)

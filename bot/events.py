@@ -116,15 +116,15 @@ def setup(bot: commands.Bot):
         # Vérifie si le rôle Nitro Booster a été ajouté
         if not before.premium_since and after.premium_since:
             try:
-                # 🎁 On donne les 500 points direct !
-                await database.add_points(database.db_pool, str(after.id), 500)
+                # 🎁 On donne les 1000 points direct !
+                await database.add_points(database.db_pool, str(after.id), 1000)
                 
                 channel = after.guild.get_channel(config.BLABLA_CHANNEL_ID)
                 if channel:
                     await channel.send(
                         f"💎 **{after.mention} vient de booster le serveur !**\n"
                         f"Merci infiniment pour ton soutien frérot, t'es un vrai 🔥🔥🔥\n"
-                        f"🎁 Boom ! **+500 points** Kanaé offerts au boss pour le soutien !"
+                        f"🎁 Boom ! **+1000 points** Kanaé offerts au boss pour le soutien !"
                     )
             except Exception as e:
                 logger.warning("❌ Erreur lors du message de boost : %s", e)
@@ -151,9 +151,10 @@ def setup(bot: commands.Bot):
                 async def award_after_2h():
                     await asyncio.sleep(7200)
                     if member.id in [m.id for m in guild.members]:
-                        new_total = await database.add_points(database.db_pool, inviter_id, 100)
+                        # 🌿 On passe le parrainage à 250 points !
+                        new_total = await database.add_points(database.db_pool, inviter_id, 250)
                         await helpers.safe_send_dm(inviter,
-                            f"🎉 Bravo frérot ! +100 points pour ton parrainage de `{member.name}`, "
+                            f"🎉 Bravo frérot ! +250 points pour ton parrainage de `{member.name}`, "
                             f"il est resté 2 h sur le serveur ! Total : {new_total} points. Continue comme ça 🚀")
                 asyncio.create_task(award_after_2h())
         except Exception as e:

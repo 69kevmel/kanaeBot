@@ -120,6 +120,15 @@ async def ensure_tables(pool):
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """
             )
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS social_account_rewards (
+                    platform VARCHAR(50),
+                    username VARCHAR(255),
+                    PRIMARY KEY(platform, username)
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                """
+            )
 
             # Pokeweed tables
             await cur.execute("""
@@ -329,15 +338,26 @@ async def unlink_social_account(pool, user_id, platform):
                 (int(user_id), platform)
             )
 
-async def check_and_reward_social_link(pool, user_id, platform):
-    # Regarde si le joueur a déjà eu sa récompense pour ce réseau
+async def check_and_reward_social_link(pool, user_id, platform, username):
+    # Double sécurité : On vérifie le compte Discord ET le pseudo Twitch
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
+            # 1. Est-ce que ce compte Discord a déjà eu les points pour ce réseau ?
             await cur.execute("SELECT 1 FROM social_rewards WHERE user_id = %s AND platform = %s;", (int(user_id), platform))
-            if not await cur.fetchone():
-                # On note qu'il a pris sa récompense
+            discord_used = await cur.fetchone()
+            
+            # 2. Est-ce que ce pseudo Twitch a déjà été utilisé par quelqu'un pour gratter les points ?
+            await cur.execute("SELECT 1 FROM social_account_rewards WHERE platform = %s AND username = %s;", (platform, username))
+            social_used = await cur.fetchone()
+            
+            # Si ni le Discord ni le Twitch n'ont été utilisés, on donne les points !
+            if not discord_used and not social_used:
+                # On verrouille le Discord
                 await cur.execute("INSERT INTO social_rewards (user_id, platform) VALUES (%s, %s);", (int(user_id), platform))
+                # On verrouille le compte Twitch !
+                await cur.execute("INSERT INTO social_account_rewards (platform, username) VALUES (%s, %s);", (platform, username))
                 return True
+                
             return False
         
 async def claim_twitch_sub_reward(pool, user_id):
@@ -364,3 +384,12 @@ async def claim_twitch_sub_reward(pool, user_id):
                 (int(user_id),)
             )
             return True
+        
+async def get_all_socials_by_discord(pool, user_id):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT platform, username FROM social_links WHERE user_id = %s;",
+                (int(user_id),)
+            )
+            return await cur.fetchall()
