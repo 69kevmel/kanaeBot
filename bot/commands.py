@@ -567,24 +567,35 @@ def setup(bot: commands.Bot):
                 # 🌿 On vérifie s'il FOLLOW la chaîne avec DecAPI
                 async with aiohttp.ClientSession() as session:
                     url = f"https://decapi.me/twitch/followage/{config.TWITCH_CHANNEL}/{clean_pseudo}"
+                    # ... (juste après le session.get)
                     async with session.get(url) as resp:
-                        follow_text = await resp.text()
+                        # C'EST ICI ! ⬇️
+                        follow_text = (await resp.text()).lower()
+                        
+                        # On cherche des mots clés de durée
+                        has_duration = any(word in follow_text for word in ["year", "month", "week", "day", "hour", "minute", "second"])
+                        is_invalid = any(word in follow_text for word in ["does not follow", "error", "not found", "broadcaster"])
+
+                        is_following = has_duration and not is_invalid
+                        # C'EST FINI ! ⬆️
+                    # ... (ensuite on utilise "if is_following:")
                 
                 # Si le texte contient ces mots, c'est qu'il ne follow pas ou que le pseudo n'existe pas
-                is_following = "does not follow" not in follow_text.lower() and "error" not in follow_text.lower() and "not found" not in follow_text.lower()
-                
                 if is_following:
-                    # ✅ CORRECTION ICI : on a bien ajouté 'clean_pseudo' en 4ème argument
+                    # ✅ On passe bien les 4 arguments
                     can_reward = await database.check_and_reward_social_link(database.db_pool, user_id, platform, clean_pseudo)
                     
                     if can_reward:
                         await database.add_points(database.db_pool, user_id, 200)
-                        msg += f"\n🎁 **BOOM !** On a vu que tu follow déjà la chaîne ! Tu gagnes **+200 points** direct ! 🌿"
+                        msg += f"\n🎁 **BOOM !** Merci pour le follow ! Tu gagnes **+200 points** direct ! 🌿"
                     else:
                         msg += "\nPrépare-toi à amasser les points pour le Kanaé d'Or quand le live sera ON 📺🌿"
                 else:
-                    msg += f"\n⚠️ **Attention :** Tu ne follow pas encore la chaîne **{config.TWITCH_CHANNEL}** !\n👉 Follow le live et tape la commande `/refresh-points` pour récupérer tes 200 points !"
-                
+                    if "broadcaster" in follow_text:
+                        msg += f"\n👑 **Boss :** Tu es le streamer, tu ne peux pas être ton propre follower ! Pas de triche. 😉"
+                    else:
+                        msg += f"\n⚠️ **Attention :** Tu ne follow pas encore la chaîne **{config.TWITCH_CHANNEL}** !\n👉 Follow le live et fais `/refresh-points` pour tes 200 points !"
+                        
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.followup.send(
@@ -651,8 +662,11 @@ def setup(bot: commands.Bot):
             async with session.get(follow_url) as resp:
                 # ✅ Correction ici : on attend le texte, PUIS on met en minuscule
                 follow_text = (await resp.text()).lower()
-            
-            is_following = "does not follow" not in follow_text and "error" not in follow_text and "not found" not in follow_text
+                # On cherche des mots clés de durée
+                has_duration = any(word in follow_text for word in ["year", "month", "week", "day", "hour", "minute", "second"])
+                is_invalid = any(word in follow_text for word in ["does not follow", "error", "not found", "broadcaster"])
+
+                is_following = has_duration and not is_invalid
             
             if is_following:
                 can_reward_follow = await database.check_and_reward_social_link(database.db_pool, user_id, "twitch", twitch_user)
