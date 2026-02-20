@@ -649,12 +649,12 @@ def setup(bot: commands.Bot):
             # --- VERIFICATION 1 : TWITCH FOLLOW (200 pts) ---
             follow_url = f"https://decapi.me/twitch/followage/{config.TWITCH_CHANNEL}/{twitch_user}"
             async with session.get(follow_url) as resp:
-                follow_text = await resp.text()
+                # ✅ Correction ici : on attend le texte, PUIS on met en minuscule
+                follow_text = (await resp.text()).lower()
             
-            is_following = "does not follow" not in follow_text.lower() and "error" not in follow_text.lower() and "not found" not in follow_text.lower()
+            is_following = "does not follow" not in follow_text and "error" not in follow_text and "not found" not in follow_text
             
             if is_following:
-                # On check s'il a déjà eu la récompense
                 can_reward_follow = await database.check_and_reward_social_link(database.db_pool, user_id, "twitch", twitch_user)
                 if can_reward_follow:
                     total_gained += 200
@@ -664,13 +664,13 @@ def setup(bot: commands.Bot):
             else:
                 report.append(f"❌ **Twitch Follow :** Tu ne follow pas encore la chaîne.")
 
-          # --- VERIFICATION 2 : TWITCH SUB (1000 pts / MOIS) ---
+            # --- VERIFICATION 2 : TWITCH SUB (1000 pts / MOIS) ---
             sub_url = f"https://decapi.me/twitch/subage/{config.TWITCH_CHANNEL}/{twitch_user}"
             async with session.get(sub_url) as resp:
-                sub_text = await resp.text().lower()
+                # ✅ Correction ici aussi
+                sub_text = (await resp.text()).lower()
             
-            # 🛡️ Nouvelle logique de vérification ultra-stricte
-            # On vérifie qu'on a bien des mots clés de succès ET qu'on n'a pas de mots clés d'échec
+            # 🛡️ Logique de vérification stricte
             has_sub_info = any(word in sub_text for word in ["months", "days", "years", "tier", "subbed"])
             is_negative = any(word in sub_text for word in ["not subscribed", "not found", "error", "broadcaster"])
             
