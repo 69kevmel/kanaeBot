@@ -131,7 +131,7 @@ async def ensure_tables(pool):
             )
             await cur.execute(
                 """
-                CREATE TABLE social_refresh (
+                CREATE TABLE IF NOT EXISTS social_refresh (
                     user_id BIGINT PRIMARY KEY,
                     last_refresh DATETIME
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
