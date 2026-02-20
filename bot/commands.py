@@ -546,6 +546,16 @@ def setup(bot: commands.Bot):
             return
 
         clean_pseudo = pseudo_twitch.strip().lower()
+        
+        # 🛑 SÉCURITÉ : On ne peut pas lier la chaîne officielle du serveur !
+        if clean_pseudo == config.TWITCH_CHANNEL.lower():
+            await interaction.response.send_message(
+                f"❌ Ah non frérot, tu ne peux pas lier la chaîne officielle **{config.TWITCH_CHANNEL}** ! 🛑\n"
+                "Mets ton propre pseudo Twitch pour gagner des points.", 
+                ephemeral=True
+            )
+            return
+        
         await interaction.response.defer(ephemeral=True) # On defer car l'API peut prendre 1 ou 2 secondes
         
         try:
