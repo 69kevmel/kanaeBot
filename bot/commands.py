@@ -602,7 +602,7 @@ def setup(bot: commands.Bot):
             ) as resp:
                 follow_data = await resp.json()
 
-        logger(f"Vérification follow Twitch pour {username} ({twitch_user_id}) : {follow_data}")
+        logger.info(f"Vérification follow Twitch pour {username} ({twitch_user_id}) : {follow_data}")
         is_following = len(follow_data.get("data", [])) > 0
 
         if is_following:
