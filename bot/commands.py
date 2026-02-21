@@ -522,6 +522,19 @@ def setup(bot: commands.Bot):
 
         discord_id = str(interaction.user.id)
         username = pseudo_twitch.strip().lower()
+        existing_twitch = await database.get_social_by_discord(
+            database.db_pool, 
+            discord_id, 
+            "twitch"
+        )
+
+        if existing_twitch:
+            await interaction.followup.send(
+                f"❌ Tu as déjà lié le compte Twitch **{existing_twitch}** à ton profil.\n"
+                "Si tu veux changer de compte, utilise d'abord la commande `/unlink-twitch` frérot !", 
+                ephemeral=True
+            )
+            return
 
         # --- Validation format ---
         if not re.fullmatch(r"[a-z0-9_]{4,25}", username):
