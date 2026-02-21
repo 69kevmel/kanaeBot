@@ -1,5 +1,4 @@
 import logging
-import random
 import os
 import discord
 import aiohttp
@@ -42,20 +41,6 @@ def format_pokeweed_display(name, power, hp, rarity, owned=0):
 
     status = "🆕 Nouvelle carte !" if owned == 0 else f"x{owned + 1}"
     return f"{stars.get(rarity, '🌿')} {flair[rarity]}{name}{flair_end[rarity]} — 💥 {power} | ❤️ {hp} | ✨ {rarity} ({status})"
-
-def _now_utc():
-    return datetime.now(timezone.utc)
-
-def _format_remaining(td: timedelta) -> str:
-    # retourne "Xh Ymin"
-    total_sec = int(td.total_seconds())
-    hours = total_sec // 3600
-    minutes = (total_sec % 3600) // 60
-    return f"{hours}h {minutes}min"
-
-# Anti double-clic /booster
-_inflight_boosters: set[int] = set()
-
 
 def setup(bot: commands.Bot):
     # ---------------------------------------
@@ -706,7 +691,7 @@ def setup(bot: commands.Bot):
             ) as resp:
                 follow_data = await resp.json()
 
-            is_following = follow_data.get("total", 0) > 0
+            is_following = len(follow_data.get("data", [])) > 0
 
             if is_following:
                 if await database.check_and_reward_social_link(database.db_pool, discord_id, "twitch", twitch_username):

@@ -240,19 +240,6 @@ async def set_reaction_counted(pool, message_id, reactor_id):
                 (int(message_id), int(reactor_id)),
             )
 
-async def get_top_n(pool, n=10):
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                SELECT user_id, points FROM scores
-                ORDER BY points DESC
-                LIMIT %s;
-                """,
-                (n,),
-            )
-            return await cur.fetchall()
-
 async def has_sent_news(pool, link):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
