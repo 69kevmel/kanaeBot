@@ -548,7 +548,7 @@ def setup(bot: commands.Bot):
             return
 
         # --- Récupération du token dynamique ---
-        token = await helpers.get_twitch_token()
+        token = config.TWITCH_API_TOKEN
         if not token:
             await interaction.followup.send("❌ Erreur de connexion à Twitch.", ephemeral=True)
             return
@@ -664,7 +664,7 @@ def setup(bot: commands.Bot):
             await interaction.followup.send("❌ Aucun compte Twitch lié.", ephemeral=True)
             return
 
-        token = await helpers.get_twitch_token()
+        token = config.TWITCH_API_TOKEN
         if not token:
             await interaction.followup.send("❌ Impossible de contacter Twitch.", ephemeral=True)
             return
