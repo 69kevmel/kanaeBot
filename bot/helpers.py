@@ -1,5 +1,6 @@
 import logging
 import discord
+import aiohttp
 
 from . import config, database
 
@@ -54,3 +55,17 @@ async def build_top5_message(
         lines.append(f"{icons[idx]} {name} \u2192 {pts} pts")
     return "\n".join(lines)
 
+async def get_twitch_token():
+    url = "https://id.twitch.tv/oauth2/token"
+    params = {
+        "client_id": config.TWITCH_CLIENT_ID,
+        "client_secret": config.TWITCH_CLIENT_SECRET,
+        "grant_type": "client_credentials"
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, params=params) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                return data['access_token']
+            else:
+                return None

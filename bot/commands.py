@@ -547,11 +547,16 @@ def setup(bot: commands.Bot):
             await interaction.followup.send("❌ Impossible de lier la chaîne officielle.", ephemeral=True)
             return
 
+        # --- Récupération du token dynamique ---
+        token = await helpers.get_twitch_token()
+        if not token:
+            await interaction.followup.send("❌ Erreur de connexion à Twitch.", ephemeral=True)
+            return
+
         headers = {
             "Client-ID": config.TWITCH_CLIENT_ID,
-            "Authorization": f"Bearer {config.TWITCH_TOKEN}"
+            "Authorization": f"Bearer {token}" # 👈 On utilise le token frais
         }
-
         # --- Vérifie que le compte existe ---
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -560,6 +565,12 @@ def setup(bot: commands.Bot):
                 params={"login": username}
             ) as resp:
                 data = await resp.json()
+                
+                # NOUVEAU : On check si Twitch nous engueule
+                if resp.status != 200:
+                    logger.error(f"Erreur API Twitch [{resp.status}] : {data}")
+                    await interaction.followup.send(f"❌ Twitch a bloqué la requête (Erreur {resp.status}). Regarde la console du bot pour les détails !", ephemeral=True)
+                    return
 
         if not data.get("data"):
             await interaction.followup.send("❌ Compte Twitch introuvable.", ephemeral=True)
@@ -653,9 +664,14 @@ def setup(bot: commands.Bot):
             await interaction.followup.send("❌ Aucun compte Twitch lié.", ephemeral=True)
             return
 
+        token = await helpers.get_twitch_token()
+        if not token:
+            await interaction.followup.send("❌ Impossible de contacter Twitch.", ephemeral=True)
+            return
+
         headers = {
             "Client-ID": config.TWITCH_CLIENT_ID,
-            "Authorization": f"Bearer {config.TWITCH_TOKEN}"
+            "Authorization": f"Bearer {token}"
         }
 
         # --- Récupère user_id Twitch ---
