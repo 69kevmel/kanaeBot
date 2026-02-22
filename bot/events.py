@@ -259,6 +259,7 @@ def setup(bot: commands.Bot):
                     if not await database.has_daily_limit(database.db_pool, user_id, channel_id, date_str):
                         await database.set_daily_limit(database.db_pool, user_id, channel_id, date_str)
                         new_total = await database.add_points(database.db_pool, user_id, config.SPECIAL_CHANNEL_IDS[channel_id])
+                        await helpers.update_member_prestige_role(message.author, new_total)
                         if new_total in [10, 50, 100]:
                             await helpers.safe_send_dm(message.author, f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀")
 
@@ -306,6 +307,7 @@ def setup(bot: commands.Bot):
             return
         await database.set_reaction_counted(database.db_pool, message.id, reactor_id)
         new_total = await database.add_points(database.db_pool, author_id, 2)
+        await helpers.update_member_prestige_role(author, new_total)
         if new_total in [10, 50, 100]:
             await helpers.safe_send_dm(author, f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀")
 
@@ -330,6 +332,10 @@ def setup(bot: commands.Bot):
 
                 # Donne les points
                 await database.add_points(database.db_pool, user_id, 25)
+                new_total = await database.get_user_points(database.db_pool, user_id)
+                member_obj = thread.guild.get_member(user_id)
+                if member_obj:
+                    await helpers.update_member_prestige_role(member_obj, new_total)
                 logger.info(f"🎁 +25 points pour création de sujet par {user_id}")
 
                 # Log la création

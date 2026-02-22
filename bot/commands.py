@@ -42,6 +42,68 @@ def format_pokeweed_display(name, power, hp, rarity, owned=0):
     status = "🆕 Nouvelle carte !" if owned == 0 else f"x{owned + 1}"
     return f"{stars.get(rarity, '🌿')} {flair[rarity]}{name}{flair_end[rarity]} — 💥 {power} | ❤️ {hp} | ✨ {rarity} ({status})"
 
+class CandidatureModal(discord.ui.Modal, title='Candidature Staff Kanaé'):
+    # On définit les champs que l'utilisateur devra remplir
+    poste = discord.ui.TextInput(
+        label='Quel poste vises-tu ?',
+        placeholder='Ex: Modérateur, Animateur, Helper...',
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=50
+    )
+    
+    age = discord.ui.TextInput(
+        label='Ton âge',
+        placeholder='Ex: 21',
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=2
+    )
+
+    dispos = discord.ui.TextInput(
+        label='Tes disponibilités',
+        placeholder='Ex: Tous les soirs après 18h et le week-end',
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=100
+    )
+
+    motivation = discord.ui.TextInput(
+        label='Pourquoi toi ? (Motivations)',
+        placeholder='Dis-nous pourquoi tu ferais un bon membre de l\'équipe...',
+        style=discord.TextStyle.long, # Champ plus grand pour un texte long
+        required=True,
+        max_length=1000
+    )
+
+    # Ce qui se passe quand le mec clique sur "Envoyer"
+    async def on_submit(self, interaction: discord.Interaction):
+        # 1. On confirme à l'utilisateur que c'est bon
+        await interaction.response.send_message(
+            "✅ Ta candidature a bien été envoyée au staff. Merci pour ton implication frérot !", 
+            ephemeral=True
+        )
+
+        # 2. On récupère le salon privé du staff
+        channel = interaction.client.get_channel(config.CHANNEL_RECRUTEMENT_ID)
+        
+        if channel:
+            # 3. On crée un bel Embed pour le staff
+            embed = discord.Embed(
+                title=f"📝 Nouvelle Candidature : {self.poste.value}",
+                color=discord.Color.gold(),
+                timestamp=interaction.created_at
+            )
+            embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
+            embed.add_field(name="Âge", value=self.age.value, inline=True)
+            embed.add_field(name="Disponibilités", value=self.dispos.value, inline=True)
+            embed.add_field(name="Motivations", value=self.motivation.value, inline=False)
+            embed.set_footer(text=f"ID User : {interaction.user.id}")
+
+            await channel.send(embed=embed)
+        else:
+            logger.error("❌ Impossible de trouver le salon de recrutement. Vérifie CHANNEL_RECRUTEMENT_ID.")
+
 def setup(bot: commands.Bot):
     # ---------------------------------------
     # /hey
@@ -276,6 +338,8 @@ def setup(bot: commands.Bot):
                     for uid, pid in inserts:
                         await cur.execute("INSERT INTO user_pokeweeds (user_id, pokeweed_id, capture_date) VALUES (%s, %s, NOW());", (uid, pid))
                     await database.add_points(database.db_pool, user_id, total_points)
+                    final_pts = await database.get_user_points(database.db_pool, user_id)
+                    await helpers.update_member_prestige_role(interaction.user, final_pts)
                     await cur.execute("INSERT INTO booster_cooldowns (user_id, last_opened) VALUES (%s, %s) ON DUPLICATE KEY UPDATE last_opened = %s;", (user_id, now, now))
 
         except Exception as e:
@@ -310,6 +374,8 @@ def setup(bot: commands.Bot):
                 )
                 points = pokeweed[3]
                 await database.add_points(database.db_pool, user_id, points)
+                new_total = await database.get_user_points(database.db_pool, user_id)
+                await helpers.update_member_prestige_role(interaction.user, new_total)
 
         state.capture_winner = user_id
         channel = interaction.channel
@@ -740,8 +806,10 @@ def setup(bot: commands.Bot):
                 report.append("❌ Sub non détecté")
 
         if total_gained > 0:
+            new_total = await database.add_points(database.db_pool, discord_id, total_gained)
             await database.add_points(database.db_pool, discord_id, total_gained)
             report.append(f"\n🎁 TOTAL : +{total_gained} points")
+            await helpers.update_member_prestige_role(interaction.user, new_total)
 
         await interaction.followup.send("\n".join(report), ephemeral=True)
 
@@ -902,3 +970,11 @@ def setup(bot: commands.Bot):
             f"✅ Reaction roles prêts dans {channel.mention}.\nMessage ID: `{message.id}`",
             ephemeral=True
         )
+
+    # ---------------------------------------
+    # /candidature
+    # ---------------------------------------
+    @bot.tree.command(name="candidature", description="Postule pour rejoindre l'équipe du staff Kanaé !")
+    async def candidature(interaction: discord.Interaction):
+        # On affiche le formulaire à l'utilisateur
+        await interaction.response.send_modal(CandidatureModal())
