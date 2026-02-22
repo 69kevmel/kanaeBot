@@ -7,6 +7,7 @@ from discord import app_commands
 import asyncio
 import unicodedata
 import re
+import random
 
 from . import config, database, helpers, state
 from datetime import datetime, timedelta, timezone, date
@@ -41,6 +42,43 @@ def format_pokeweed_display(name, power, hp, rarity, owned=0):
 
     status = "🆕 Nouvelle carte !" if owned == 0 else f"x{owned + 1}"
     return f"{stars.get(rarity, '🌿')} {flair[rarity]}{name}{flair_end[rarity]} — 💥 {power} | ❤️ {hp} | ✨ {rarity} ({status})"
+
+class DouilleView(discord.ui.View):
+    def __init__(self, host_id: int, mise: int):
+        super().__init__(timeout=60.0) # Les joueurs ont 60 secondes pour rejoindre
+        self.host_id = host_id
+        self.mise = mise
+        self.players = {host_id} # Le créateur est automatiquement dedans
+        
+    @discord.ui.button(label="Rejoindre la partie 🔫", style=discord.ButtonStyle.danger, custom_id="join_douille")
+    async def join_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_id = interaction.user.id
+        if user_id in self.players:
+            await interaction.response.send_message("❌ T'es déjà dans la partie frérot, calme-toi !", ephemeral=True)
+            return
+            
+        if len(self.players) >= 6:
+            await interaction.response.send_message("❌ Le barillet est plein (6 joueurs max) !", ephemeral=True)
+            return
+            
+        # On vérifie si le joueur a assez de points pour suivre la mise
+        pts = await database.get_user_points(database.db_pool, str(user_id))
+        if pts < self.mise:
+            await interaction.response.send_message(f"❌ T'es à sec. Il te faut {self.mise} points pour jouer.", ephemeral=True)
+            return
+            
+        self.players.add(user_id)
+        await interaction.response.send_message(f"✅ Tu as rejoint la partie pour {self.mise} points !", ephemeral=True)
+        
+        # On met à jour le message public avec les nouveaux joueurs
+        mentions = " ".join([f"<@{pid}>" for pid in self.players])
+        embed = interaction.message.embeds[0]
+        embed.description = f"**Mise :** {self.mise} points\n**Joueurs ({len(self.players)}/6) :**\n{mentions}\n\n*Cliquez sur le bouton pour rejoindre ! Le barillet tourne dans quelques secondes.*"
+        await interaction.message.edit(embed=embed)
+        
+        # Si on atteint 6 joueurs, on lance la partie direct sans attendre la fin du chrono
+        if len(self.players) >= 6:
+            self.stop()
 
 class CandidatureModal(discord.ui.Modal, title='Candidature Staff Kanaé'):
     # On définit les champs que l'utilisateur devra remplir
@@ -904,6 +942,176 @@ def setup(bot: commands.Bot):
         lines.append("*(N'oublie pas de faire `/refresh-points` pour récupérer tes récompenses !)*")
         
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+    # ---------------------------------------
+    # /bet (Casino)
+    # ---------------------------------------
+    @bot.tree.command(name="bet", description="Parie tes points Kanaé ! 🎰")
+    @app_commands.describe(mise="Le nombre de points que tu veux parier")
+    async def bet(interaction: discord.Interaction, mise: int):
+        # On ne met pas ephemeral=True pour que TOUT LE MONDE voie le résultat et rigole !
+        await interaction.response.defer(ephemeral=False)
+
+        user_id = str(interaction.user.id)
+
+        # 1. Sécurité : Vérifier le montant
+        if mise <= 0:
+            await interaction.followup.send("❌ Frérot, tu dois parier un montant positif (au moins 1 point).", ephemeral=True)
+            return
+
+        # 2. Sécurité : Vérifier si l'utilisateur a assez de points
+        current_points = await database.get_user_points(database.db_pool, user_id)
+        if current_points < mise:
+            await interaction.followup.send(
+                f"❌ T'es à sec ! Tu n'as que **{current_points} points**, tu ne peux pas parier **{mise}**.", 
+                ephemeral=True
+            )
+            return
+
+        # 3. Le fameux tirage au sort (1 à 100)
+        roll = random.randint(1, 100)
+
+        if roll <= 48:
+            # 🎉 GAGNÉ (48% de chance : 1 à 48)
+            new_total = await database.add_points(database.db_pool, user_id, mise)
+            await helpers.update_member_prestige_role(interaction.user, new_total)
+            
+            embed = discord.Embed(
+                title="🎰 CASINO KANAÉ - BINGO ! 🎉",
+                description=f"Incroyable {interaction.user.mention} ! T'as eu le nez fin.\n\n"
+                            f"✅ Tu as parié **{mise} points** et tu as **DOUBLÉ** ta mise !\n"
+                            f"💰 Ton nouveau solde : **{new_total} points**.",
+                color=discord.Color.green()
+            )
+            await interaction.followup.send(embed=embed)
+        else:
+            # 💸 PERDU (52% de chance : 49 à 100)
+            # On soustrait la mise en envoyant un nombre négatif
+            new_total = await database.add_points(database.db_pool, user_id, -mise)
+            
+            # Mise à jour du rôle (s'il perd beaucoup, il peut être rétrogradé en repassant dans la fonction)
+            await helpers.update_member_prestige_role(interaction.user, new_total)
+            
+            embed = discord.Embed(
+                title="🎰 CASINO KANAÉ - COUP DUR... 💸",
+                description=f"Aïe coup dur pour {interaction.user.mention}...\n\n"
+                            f"❌ Le KanaéBot a raflé la mise ! Tu viens de perdre **{mise} points**.\n"
+                            f"📉 Ton nouveau solde : **{new_total} points**.\n\n"
+                            f"*La maison gagne toujours :) (Mais tu peux toujours recommencer !)*",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed)
+
+# ---------------------------------------
+    # /wakeandbake (Daily Reward)
+    # ---------------------------------------
+    @bot.tree.command(name="wakeandbake", description="Récupère ta récompense quotidienne. Fais grimper ton multiplicateur jusqu'à x2 ! 🌅")
+    async def wakeandbake(interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
+        user_id = str(interaction.user.id)
+        
+        success, streak, reward, multiplicateur = await database.claim_wake_and_bake(database.db_pool, user_id)
+        
+        if not success:
+            await interaction.followup.send(f"❌ T'as déjà pris ton Wake & Bake aujourd'hui frérot ! Reviens demain. (Série en cours : **{streak} 🔥**)", ephemeral=True)
+            return
+            
+        new_total = await database.add_points(database.db_pool, user_id, reward)
+        await helpers.update_member_prestige_role(interaction.user, new_total)
+        
+        embed = discord.Embed(
+            title="🌅 WAKE & BAKE",
+            description=f"Bien le bonjour {interaction.user.mention} ! ☕🌿\n\n"
+                        f"🎁 Cadeau quotidien : **+{reward} points**\n"
+                        f"🔥 Série en cours : **{streak} jours**\n"
+                        f"📈 Multiplicateur actuel : **x{multiplicateur:.1f}**\n\n"
+                        f"💰 Nouveau solde : **{new_total} points**",
+            color=discord.Color.green()
+        )
+        
+        # Petit message stylé s'il a atteint le plafond de x2.0
+        if multiplicateur >= 2.0:
+            embed.set_footer(text="👑 MAXIMUM ATTEINT ! Reviens tous les jours pour conserver ton x2 !")
+        else:
+            embed.set_footer(text="⚠️ N'oublie pas de revenir demain pour faire monter ton multiplicateur !")
+            
+        await interaction.followup.send(embed=embed)
+
+    # ---------------------------------------
+    # /douille (Roulette Russe Multijoueur)
+    # ---------------------------------------
+    @bot.tree.command(name="douille", description="Roulette Russe ! Jusqu'à 6 joueurs. 1 perdant, les autres raflent sa mise. 🔫")
+    @app_commands.describe(mise="Nombre de points pour entrer dans la partie")
+    async def douille(interaction: discord.Interaction, mise: int):
+        if mise < 10:
+            await interaction.response.send_message("❌ Minimum syndical : 10 points la partie.", ephemeral=True)
+            return
+            
+        user_id = str(interaction.user.id)
+        pts = await database.get_user_points(database.db_pool, user_id)
+        if pts < mise:
+            await interaction.response.send_message(f"❌ T'es à sec frérot. Il te faut {mise} points.", ephemeral=True)
+            return
+            
+        view = DouilleView(interaction.user.id, mise)
+        embed = discord.Embed(
+            title="🔫 LA DOUILLE (Roulette Russe)",
+            description=f"**Mise :** {mise} points\n**Joueurs (1/6) :**\n{interaction.user.mention}\n\n*Cliquez sur le bouton pour rejoindre ! Le coup part dans 60 secondes.*",
+            color=discord.Color.dark_theme()
+        )
+        await interaction.response.send_message(embed=embed, view=view)
+        
+        # On attend 60 secondes OU que 6 joueurs soient là
+        await view.wait()
+        
+        original_msg = await interaction.original_response()
+        
+        # On désactive le bouton une fois la partie lancée
+        for child in view.children:
+            child.disabled = True
+        await original_msg.edit(view=view)
+        
+        if len(view.players) < 2:
+            await interaction.followup.send("❌ Pas assez de couilles sur le serveur... La partie est annulée (il faut au moins 2 joueurs) !", ephemeral=False)
+            return
+            
+        # Sécurité : on revérifie les points juste avant le tirage au cas où un mec a dépensé ses points entre-temps
+        final_players = []
+        for pid in view.players:
+            pts = await database.get_user_points(database.db_pool, str(pid))
+            if pts >= mise:
+                final_players.append(pid)
+                
+        if len(final_players) < 2:
+            await interaction.followup.send("❌ Partie annulée : Certains petits malins ont dépensé leurs points avant le tirage.", ephemeral=False)
+            return
+            
+        # 💥 LE TIRAGE FATAL
+        loser_id = random.choice(final_players)
+        winners = [pid for pid in final_players if pid != loser_id]
+        
+        # Le perdant perd toute sa mise, les gagnants se partagent sa mise
+        gain_per_winner = mise // len(winners)
+        
+        # On retire les points du perdant
+        await database.add_points(database.db_pool, str(loser_id), -mise)
+        
+        # On donne les points aux gagnants
+        for wid in winners:
+            await database.add_points(database.db_pool, str(wid), gain_per_winner)
+            
+        # Création du message de résultat
+        loser_mention = f"<@{loser_id}>"
+        winners_mentions = "\n".join([f"✅ <@{w}> (+{gain_per_winner} pts)" for w in winners])
+        
+        res_embed = discord.Embed(
+            title="💥 PAN ! LE COUP EST PARTI !",
+            description=f"Le barillet a tourné... Et c'est {loser_mention} qui se prend la douille dans la tête ! 💀\n\n"
+                        f"💸 **Il perd sa mise de {mise} points.**\n\n"
+                        f"🏆 **Les survivants se partagent le butin :**\n{winners_mentions}",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=res_embed)
 
     # ---------------------------------------
     # /spawn (admin)

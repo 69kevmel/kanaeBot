@@ -138,6 +138,17 @@ async def ensure_tables(pool):
                 """
             )
 
+            # Wake & Bake table
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS wake_and_bake (
+                    user_id BIGINT PRIMARY KEY,
+                    last_claim DATE,
+                    streak INT
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                """
+            )
+
             # Pokeweed tables
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS pokeweeds (
@@ -388,3 +399,47 @@ async def get_all_socials_by_discord(pool, user_id):
                 (int(user_id),)
             )
             return await cur.fetchall()
+        
+async def claim_wake_and_bake(pool, user_id):
+    today = datetime.now(timezone.utc).date()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            # On vérifie la dernière fois qu'il a claim
+            await cur.execute("SELECT last_claim, streak FROM wake_and_bake WHERE user_id = %s;", (int(user_id),))
+            row = await cur.fetchone()
+
+            if row:
+                last_claim, streak = row
+                if last_claim == today:
+                    return False, streak, 0, 1.0 # Déjà claim aujourd'hui
+                
+                # S'il a claim hier, on augmente la série, sinon on remet à 1
+                if last_claim == today - timedelta(days=1):
+                    streak += 1
+                else:
+                    streak = 1
+            else:
+                streak = 1
+
+            # --- CALCUL DU MULTIPLICATEUR ---
+            # Jour 1 = x1.0 | Jour 2 = x1.1 | Jour 3 = x1.2 etc...
+            multiplicateur = 1.0 + ((streak - 1) * 0.1)
+            
+            # On bloque au maximum à x2.0 (atteint au bout de 11 jours)
+            if multiplicateur > 2.0:
+                multiplicateur = 2.0
+
+            base_reward = 50 # Le gain de base
+            final_reward = round(base_reward * multiplicateur)
+
+            # On met à jour la base de données
+            await cur.execute(
+                """
+                INSERT INTO wake_and_bake (user_id, last_claim, streak) 
+                VALUES (%s, %s, %s) 
+                ON DUPLICATE KEY UPDATE last_claim=%s, streak=%s;
+                """,
+                (int(user_id), today, streak, today, streak)
+            )
+
+            return True, streak, final_reward, multiplicateur
