@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
 import os
 import random
 import feedparser
@@ -258,4 +258,40 @@ async def spawn_pokeweed(bot: discord.Client):
     state.current_spawn = pokeweed
     state.capture_winner = None
 
-
+@tasks.loop(minutes=1)
+async def wake_and_bake_reminder(bot: discord.Client):
+    now = datetime.now(timezone.utc)
+    
+    # 20h00 UTC = exactement 4h avant le reset de minuit UTC
+    if now.hour == 20 and now.minute == 0:
+        logger.info("⏰ Lancement des rappels Wake & Bake...")
+        today = now.date()
+        yesterday = today - timedelta(days=1)
+        
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT user_id, streak FROM wake_and_bake WHERE last_claim = %s AND streak >= 1;", 
+                    (yesterday,)
+                )
+                users_at_risk = await cur.fetchall()
+        
+        for user_id, streak in users_at_risk:
+            try:
+                user = await bot.fetch_user(int(user_id))
+                if user:
+                    msg = (
+                        f"🚨 **ALERTE ROUGE FRÉROT !** 🚨\n\n"
+                        f"Il te reste moins de **4 heures** pour faire ton `/wakeandbake` aujourd'hui !\n"
+                        f"Si tu ne le fais pas, tu vas perdre ta série actuelle de **{streak} jours** 🔥 et ton multiplicateur retombera à zéro.\n\n"
+                        f"Fonce sur le serveur sauver ton bonus ! 💨"
+                    )
+                    await helpers.safe_send_dm(user, msg)
+                
+                # 🛑 LA SÉCURITÉ ANTI-BAN DISCORD EST ICI 🛑
+                # Le bot attend 2 secondes avant d'envoyer le prochain message.
+                # Si tu as 30 joueurs à prévenir, ça prendra 1 minute, ce qui est très "safe" pour Discord.
+                await asyncio.sleep(2)
+                
+            except Exception as e:
+                logger.warning(f"Impossible d'envoyer le rappel W&B à {user_id}: {e}")

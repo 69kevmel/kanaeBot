@@ -106,6 +106,7 @@ def setup(bot: commands.Bot):
         tasks.daily_scores_backup.start(bot)
         tasks.update_voice_points.start(bot)
         tasks.fetch_and_send_news.start(bot)
+        tasks.wake_and_bake_reminder.start(bot)
         bot.loop.create_task(tasks.spawn_pokeweed_loop(bot))
         # Lancement du bot Twitch en tâche de fond
         from .twitch_bot import twitch_bot_instance
