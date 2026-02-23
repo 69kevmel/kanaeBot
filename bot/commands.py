@@ -474,32 +474,60 @@ def setup(bot: commands.Bot):
     @bot.tree.command(name="capture", description="Tente de capturer le Pokéweed sauvage")
     async def capture(interaction: discord.Interaction):
         if not state.current_spawn:
-            await interaction.response.send_message("Aucun Pokéweed à capturer maintenant...", ephemeral=True)
+            await interaction.response.send_message("❌ Aucun Pokéweed à capturer maintenant...", ephemeral=True)
             return
 
         winner_id = getattr(state, "capture_winner", None)
         if winner_id:
-            await interaction.response.send_message("Trop tard, il a déjà été capturé !", ephemeral=True)
+            await interaction.response.send_message("❌ Trop tard, il a déjà été capturé !", ephemeral=True)
             return
 
         pokeweed = state.current_spawn
         user_id = interaction.user.id
+        
+        pid = pokeweed[0]
+        name = pokeweed[1]
+        cap_pts = pokeweed[3]
 
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
+                # 1. On vérifie s'il possède déjà la carte AVANT de lui donner
+                await cur.execute("SELECT COUNT(*) FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s;", (user_id, pid))
+                owned_before = (await cur.fetchone())[0]
+
+                # 2. On insère la nouvelle capture
                 await cur.execute(
                     "INSERT INTO user_pokeweeds (user_id, pokeweed_id, capture_date) VALUES (%s, %s, NOW());",
-                    (user_id, pokeweed[0])
+                    (user_id, pid)
                 )
-                points = pokeweed[3]
-                await database.add_points(database.db_pool, user_id, points)
+                
+                # 3. Ajout des points
+                await database.add_points(database.db_pool, user_id, cap_pts)
                 new_total = await database.get_user_points(database.db_pool, user_id)
                 await helpers.update_member_prestige_role(interaction.user, new_total)
 
+        # On verrouille la capture pour les autres joueurs
         state.capture_winner = user_id
+        
+        # Message public dans le salon
         channel = interaction.channel
-        await channel.send(f"🎉 Bravo {interaction.user.mention} pour avoir capturé **{pokeweed[1]}** ! +{pokeweed[3]} points 🌿")
-        await interaction.response.send_message("Tu l’as capturé !", ephemeral=True)
+        await channel.send(f"🎉 Bravo {interaction.user.mention} pour avoir capturé **{name}** ! +{cap_pts} points 🌿")
+        
+        # Message éphémère (Secret)
+        if owned_before > 0:
+            total_owned = owned_before + 1
+            # On réutilise le bouton magique créé pour le Pokédex !
+            view = ClaimPokeweedView(user_id, pid, name, cap_pts, total_owned)
+            
+            await interaction.response.send_message(
+                f"🤫 **Pssst...** Tu as bien capturé **{name}**, mais tu l'avais déjà (tu en as {total_owned} maintenant) !\n\n"
+                f"Tu voudrais pas le vendre tout de suite ?", 
+                view=view, 
+                ephemeral=True
+            )
+        else:
+            # S'il ne l'avait pas, on le félicite juste
+            await interaction.response.send_message("✅ Tu l’as capturé ! 🆕 C'est une toute nouvelle carte pour ton Pokédex !", ephemeral=True)
 
     # ---------------------------------------
     # /pokedex
@@ -1094,20 +1122,25 @@ def setup(bot: commands.Bot):
             )
             await interaction.followup.send(embed=embed)
 
-# ---------------------------------------
+    # ---------------------------------------
     # /wakeandbake (Daily Reward)
     # ---------------------------------------
     @bot.tree.command(name="wakeandbake", description="Récupère ta récompense quotidienne. Fais grimper ton multiplicateur jusqu'à x2 ! 🌅")
     async def wakeandbake(interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=False)
         user_id = str(interaction.user.id)
         
+        # On vérifie directement en base AVANT de répondre à l'interaction
         success, streak, reward, multiplicateur = await database.claim_wake_and_bake(database.db_pool, user_id)
         
         if not success:
-            await interaction.followup.send(f"❌ T'as déjà pris ton Wake & Bake aujourd'hui frérot ! Reviens demain. (Série en cours : **{streak} 🔥**)", ephemeral=True)
+            # 🤫 S'il l'a déjà pris, on envoie un message 100% éphémère
+            await interaction.response.send_message(
+                f"❌ T'as déjà pris ton Wake & Bake aujourd'hui frérot ! Reviens demain. (Série en cours : **{streak} 🔥**)", 
+                ephemeral=True
+            )
             return
             
+        # 🎉 S'il gagne, on donne les points et on fait une annonce publique !
         new_total = await database.add_points(database.db_pool, user_id, reward)
         await helpers.update_member_prestige_role(interaction.user, new_total)
         
@@ -1121,13 +1154,12 @@ def setup(bot: commands.Bot):
             color=discord.Color.green()
         )
         
-        # Petit message stylé s'il a atteint le plafond de x2.0
         if multiplicateur >= 2.0:
             embed.set_footer(text="👑 MAXIMUM ATTEINT ! Reviens tous les jours pour conserver ton x2 !")
         else:
             embed.set_footer(text="⚠️ N'oublie pas de revenir demain pour faire monter ton multiplicateur !")
             
-        await interaction.followup.send(embed=embed)
+        await interaction.response.send_message(embed=embed)
 
     # ---------------------------------------
     # /douille (Roulette Russe Multijoueur)
