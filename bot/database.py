@@ -170,6 +170,16 @@ async def ensure_tables(pool):
                     FOREIGN KEY (pokeweed_id) REFERENCES pokeweeds(id)
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
             """)
+            # Table pour l'historique des ventes de pokeweeds
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS pokeweed_sales (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT,
+                    pokeweed_id INT,
+                    points_earned INT,
+                    sale_date DATETIME
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            """)
     logger.info("Database tables checked/created")
 
 async def get_user_points(pool, user_id):
@@ -443,3 +453,47 @@ async def claim_wake_and_bake(pool, user_id):
             )
 
             return True, streak, final_reward, multiplicateur
+        
+async def get_recent_sales_count(pool, user_id, hours=5):
+    """Compte combien de ventes l'utilisateur a fait dans les X dernières heures."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT COUNT(*) FROM pokeweed_sales WHERE user_id=%s AND sale_date >= DATE_SUB(NOW(), INTERVAL %s HOUR);",
+                (int(user_id), int(hours))
+            )
+            row = await cur.fetchone()
+            return row[0] if row else 0
+
+async def sell_pokeweed(pool, user_id, pokeweed_id, points):
+    """Supprime UNE copie exacte de la carte et enregistre la vente pour limiter la fraude."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            # 1. On cherche la date d'une copie pour être sûr de n'en supprimer qu'UNE seule
+            await cur.execute(
+                "SELECT capture_date FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s LIMIT 1;",
+                (int(user_id), int(pokeweed_id))
+            )
+            row = await cur.fetchone()
+            if not row:
+                return False # Il n'a pas (ou plus) la carte
+
+            capture_date = row[0]
+            
+            # 2. On supprime cette copie précise
+            await cur.execute(
+                "DELETE FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s AND capture_date=%s LIMIT 1;",
+                (int(user_id), int(pokeweed_id), capture_date)
+            )
+            if cur.rowcount == 0:
+                return False
+
+            # 3. On enregistre la vente dans l'historique
+            await cur.execute(
+                "INSERT INTO pokeweed_sales (user_id, pokeweed_id, points_earned, sale_date) VALUES (%s, %s, %s, NOW());",
+                (int(user_id), int(pokeweed_id), int(points))
+            )
+
+    # 4. On crédite les points via ta fonction existante
+    await add_points(pool, user_id, points)
+    return True

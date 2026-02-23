@@ -43,6 +43,82 @@ def format_pokeweed_display(name, power, hp, rarity, owned=0):
     status = "🆕 Nouvelle carte !" if owned == 0 else f"x{owned + 1}"
     return f"{stars.get(rarity, '🌿')} {flair[rarity]}{name}{flair_end[rarity]} — 💥 {power} | ❤️ {hp} | ✨ {rarity} ({status})"
 
+# Set global pour bloquer le double-clic (anti-cheat)
+_inflight_claims: set[int] = set()
+
+class ClaimPokeweedView(discord.ui.View):
+    def __init__(self, user_id: int, pokeweed_id: int, pokeweed_name: str, points_value: int, total_owned: int):
+        super().__init__(timeout=None)
+        self.user_id = user_id
+        self.pokeweed_id = pokeweed_id
+        self.pokeweed_name = pokeweed_name
+        self.points_value = points_value
+        self.total_owned = total_owned
+
+        # Choix de la couleur : rouge s'il n'en a qu'un (attention danger), vert sinon
+        btn_style = discord.ButtonStyle.danger if total_owned == 1 else discord.ButtonStyle.success
+        label = f"Vendre l'unique ({points_value} pts) 💰" if total_owned == 1 else f"Vendre 1 double ({points_value} pts) 💰"
+
+        self.claim_btn = discord.ui.Button(label=label, style=btn_style, custom_id=f"claim_{pokeweed_id}")
+        self.claim_btn.callback = self.claim_callback
+        self.add_item(self.claim_btn)
+
+    async def claim_callback(self, interaction: discord.Interaction):
+        # Sécurité 1 : Vérifie si c'est bien l'auteur de la commande
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ Bas les pattes, ce n'est pas ton Pokédex !", ephemeral=True)
+            return
+
+        # Sécurité 2 : Empêche le spam de clics
+        if self.user_id in _inflight_claims:
+            await interaction.response.send_message("⏳ Transaction déjà en cours, doucement...", ephemeral=True)
+            return
+
+        _inflight_claims.add(self.user_id)
+        try:
+            await interaction.response.defer(ephemeral=True)
+
+            # Sécurité 3 : Limite de 10 ventes par 5 heures
+            sales_count = await database.get_recent_sales_count(database.db_pool, self.user_id, hours=5)
+            if sales_count >= 10:
+                await interaction.followup.send("❌ Tu as atteint la limite de **10 ventes par 5 heures**. Reviens plus tard frérot !", ephemeral=True)
+                return
+
+            # Exécution de la vente
+            success = await database.sell_pokeweed(database.db_pool, self.user_id, self.pokeweed_id, self.points_value)
+
+            if not success:
+                await interaction.followup.send(f"❌ Impossible de vendre {self.pokeweed_name}. (As-tu déjà tout vendu ?)", ephemeral=True)
+                self.claim_btn.disabled = True
+                await interaction.message.edit(view=self)
+                return
+
+            self.total_owned -= 1
+            sales_count += 1
+
+            # Mise à jour des grades s'il a dépassé un palier grâce à l'argent
+            new_total = await database.get_user_points(database.db_pool, str(self.user_id))
+            await helpers.update_member_prestige_role(interaction.user, new_total)
+
+            # Modification dynamique du bouton
+            if self.total_owned > 0:
+                self.claim_btn.label = f"Vendre 1 double ({self.points_value} pts) 💰 [{10 - sales_count} ventes restantes]"
+                if self.total_owned == 1:
+                    self.claim_btn.style = discord.ButtonStyle.danger
+                    self.claim_btn.label = f"Vendre l'unique ({self.points_value} pts) 💰 [{10 - sales_count} ventes restantes]"
+            else:
+                self.claim_btn.label = "Plus de cartes ❌"
+                self.claim_btn.disabled = True
+
+            await interaction.message.edit(view=self)
+            await interaction.followup.send(f"✅ Vente réussie ! **+{self.points_value} pts** pour {self.pokeweed_name}. ({sales_count}/10 ventes)", ephemeral=True)
+
+        except Exception as e:
+            logger.exception(f"Erreur claim_callback pour {self.user_id} : {e}")
+            await interaction.followup.send("❌ Une erreur est survenue lors de la transaction.", ephemeral=True)
+        finally:
+            _inflight_claims.discard(self.user_id)
+
 class DouilleView(discord.ui.View):
     def __init__(self, host_id: int, mise: int):
         super().__init__(timeout=60.0) # Les joueurs ont 60 secondes pour rejoindre
@@ -460,24 +536,28 @@ def setup(bot: commands.Bot):
                 await interaction.followup.send(f"📭 Tu n’as aucun Pokéweed de rareté **{self.rarity}**.", ephemeral=True)
                 return
 
-            for name, hp, cap_pts, power, rarity_val, total, last_date in self.pokes:
+            for pid, name, hp, cap_pts, power, rarity_val, total, last_date in self.pokes:
                 filename = sanitize_filename(name) + ".png"
                 path = f"./assets/pokeweed/saison-1/{rarity_val.lower().replace(' ', '').replace('é', 'e')}/{filename}"
                 date_str = last_date.strftime("%d %b %Y") if last_date else "?"
 
                 embed = discord.Embed(
                     title=f"{name} 🌿",
-                    description=f"💥 Attaque : {power}\n❤️ Vie : {hp}\n✨ Capture : +{cap_pts}\n📦 Possédé : x{total}\n📅 Dernière capture : {date_str}\n⭐ Rareté : {rarity_val}",
+                    description=f"💥 Attaque : {power}\n❤️ Vie : {hp}\n✨ Valeur : {cap_pts} pts\n📦 Possédé : x{total}\n📅 Dernière capture : {date_str}\n⭐ Rareté : {rarity_val}",
                     color=discord.Color.green()
                 )
+                
+                # Ajout de la vue avec le bouton "Vendre"
+                # (On empêche la vente si c'est le Pokedex d'un autre membre)
+                view = ClaimPokeweedView(self.user.id, pid, name, cap_pts, total) if interaction.user.id == self.user.id else None
 
                 if os.path.exists(path):
                     file = discord.File(path, filename=filename)
                     embed.set_image(url=f"attachment://{filename}")
-                    await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+                    await interaction.followup.send(embed=embed, file=file, view=view, ephemeral=True)
                 else:
                     embed.description += "\n⚠️ Image non trouvée."
-                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
                 await asyncio.sleep(0.2)
 
@@ -506,7 +586,7 @@ def setup(bot: commands.Bot):
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("""
-                    SELECT p.name, p.hp, p.capture_points, p.power, p.rarity,
+                    SELECT p.id, p.name, p.hp, p.capture_points, p.power, p.rarity,
                         COUNT(*) as total, MAX(up.capture_date) as last_capture
                     FROM user_pokeweeds up
                     JOIN pokeweeds p ON up.pokeweed_id = p.id
@@ -524,10 +604,10 @@ def setup(bot: commands.Bot):
 
         pokemons_by_rarity = {}
         for row in rows:
-            pokemons_by_rarity.setdefault(row[4], []).append(row)
+            pokemons_by_rarity.setdefault(row[5], []).append(row) # L'index passe de 4 à 5 pour la rareté
 
         unique_count = len(rows)
-        total_count = sum(r[5] for r in rows)
+        total_count = sum(r[6] for r in rows) # L'index du total passe de 5 à 6
         missing = total_available - unique_count
 
         summary = (
