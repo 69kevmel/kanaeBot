@@ -56,18 +56,18 @@ async def build_top5_message(
     return "\n".join(lines)
 
 async def update_member_prestige_role(member: discord.Member, points: int):
-    """Vérifie, nettoie les anciens grades et ajoute le nouveau palier de prestige avec logs et sécurités."""
+    """Gère les changements de grade (montée/descente) avec messages adaptés."""
     # Sécurité 1 : On s'assure que c'est bien un membre d'un serveur et pas un message privé
-    #SUPPRIMER
-    return
     if not isinstance(member, discord.Member):
         return
-
-    # On trouve le grade correspondant
+    return
+    # 1. Trouver le grade cible basé sur les points actuels
     target_role_id = None
+    target_threshold = 0
     for threshold in sorted(config.PRESTIGE_ROLES.keys(), reverse=True):
         if points >= threshold:
             target_role_id = config.PRESTIGE_ROLES[threshold]
+            target_threshold = threshold
             break
 
     if not target_role_id:
@@ -78,10 +78,8 @@ async def update_member_prestige_role(member: discord.Member, points: int):
         logger.error(f"❌ [Prestige] Le rôle ID {target_role_id} est introuvable sur le serveur {member.guild.name}.")
         return
 
-    # On liste tous les IDs des rôles de prestige pour comparer
+    # 2. Identifier les rôles de prestige actuels du membre
     all_prestige_ids = set(config.PRESTIGE_ROLES.values())
-    
-    # On isole les rôles de prestige que le membre possède déjà
     current_prestige_roles = [r for r in member.roles if r.id in all_prestige_ids]
 
     # Sécurité 2 : Opti API -> S'il a DÉJÀ le bon rôle et AUCUN autre rôle de prestige, on stop
@@ -98,7 +96,23 @@ async def update_member_prestige_role(member: discord.Member, points: int):
         logger.warning(f"⚠️ [Prestige] Le rôle {target_role.name} est au-dessus du mien. Je ne peux pas le donner.")
         return
 
-    # On prépare la liste des rôles à enlever (tous sauf le nouveau)
+    # 3. Déterminer s'il s'agit d'une promotion ou d'une rétrogradation
+    is_promotion = True
+    old_role_name = "Inconnu"
+    
+    if current_prestige_roles:
+        # On crée un dictionnaire inverse {role_id: points} pour comparer les paliers
+        id_to_threshold = {v: k for k, v in config.PRESTIGE_ROLES.items()}
+        # On prend le premier rôle de prestige qu'il possède
+        old_role = current_prestige_roles[0]
+        old_role_name = old_role.name
+        old_threshold = id_to_threshold.get(old_role.id, 0)
+        
+        # Si le nouveau seuil est inférieur à l'ancien, c'est une rétrogradation
+        if target_threshold < old_threshold:
+            is_promotion = False
+
+    # 4. Préparer la liste des rôles à enlever (tous sauf le nouveau)
     roles_to_remove = [r for r in current_prestige_roles if r.id != target_role_id]
 
     try:
@@ -112,20 +126,31 @@ async def update_member_prestige_role(member: discord.Member, points: int):
             await member.add_roles(target_role, reason=f"Nouveau palier Kanaé : {points} pts")
             logger.info(f"🏆 [Prestige] {member.display_name} vient de passer au rang {target_role.name} ({points} pts) !")
             
-            # Message de félicitations
-            msg = f"✨ **FÉLICITATIONS FRÉROT !** ✨\n\nTu viens de franchir un cap avec **{points} points** ! Tu as débloqué le grade : **{target_role.name}** 👑\nContinue comme ça, la légende est en marche ! 🌿🔥"
-            await safe_send_dm(member, msg)
-
-            # --- ANNONCE PUBLIQUE ---
+        # 5. Gestion des annonces (Public / MP)
         public_channel = member.guild.get_channel(config.BLABLA_CHANNEL_ID)
-        if public_channel:
-            # On choisit un petit emoji selon le prestige pour le fun
-            announcement = (
-                f"🎉 **ALERTE PRESTIGE !** 🎉\n\n"
-                f"Félicitations à {member.mention} qui vient de franchir un cap monumental !\n"
-                f"Il devient officiellement : **{target_role.name}** 👑\n"
-            )
-            await public_channel.send(announcement)
+        
+        if is_promotion:
+            # --- PROMOTION : MP + Message Joyeux ---
+            msg_dm = f"✨ **FÉLICITATIONS FRÉROT !** ✨\n\nTu as franchi un cap avec **{points} points** ! Tu es maintenant : **{target_role.name}** 👑\nContinue comme ça, la légende est en marche ! 🌿🔥"
+            await safe_send_dm(member, msg_dm)
+            
+            if public_channel:
+                announcement = (
+                    f"🎉 **ALERTE PRESTIGE !** 🎉\n\n"
+                    f"Félicitations à {member.mention} qui grimpe en grade et devient officiellement : **{target_role.name}** 👑\n"
+                )
+                await public_channel.send(announcement)
+        
+        else:
+            # --- RÉTROGRADATION : Pas de MP + Message Triste ---
+            if public_channel:
+                import random
+                sad_messages = [
+                    f"📉 **COUP DUR...** {member.mention} vient de perdre son rang de **{old_role_name}** et redescend au rang de **{target_role.name}**. La roue tourne, courage frérot... 🕯️🌿",
+                    f"Aïe... {member.mention} a trop joué avec le feu. Il n'est plus **{old_role_name}** et redevient simple **{target_role.name}**. On t'envoie de la force ! 📉💨",
+                    f"La descente est brutale pour {member.mention}. Adieu le grade **{old_role_name}**, retour au rang de **{target_role.name}**. On remonte la pente bientôt ? 📉🕯️"
+                ]
+                await public_channel.send(random.choice(sad_messages))
 
     except discord.Forbidden:
         logger.error(f"⛔ [Prestige] Discord me refuse l'accès aux rôles de {member.display_name} (est-il propriétaire ou admin plus haut que moi ?).")
