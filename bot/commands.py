@@ -76,7 +76,8 @@ class ClaimPokeweedView(discord.ui.View):
 
         _inflight_claims.add(self.user_id)
         try:
-            await interaction.response.defer(ephemeral=True)
+            # 🛠️ CORRECTION ICI : On defer la mise à jour du composant (sans recréer de message éphémère)
+            await interaction.response.defer()
 
             # Sécurité 3 : Limite de 10 ventes par 5 heures
             sales_count = await database.get_recent_sales_count(database.db_pool, self.user_id, hours=5)
@@ -88,30 +89,34 @@ class ClaimPokeweedView(discord.ui.View):
             success = await database.sell_pokeweed(database.db_pool, self.user_id, self.pokeweed_id, self.points_value)
 
             if not success:
-                await interaction.followup.send(f"❌ Impossible de vendre {self.pokeweed_name}. (As-tu déjà tout vendu ?)", ephemeral=True)
                 self.claim_btn.disabled = True
-                await interaction.message.edit(view=self)
+                # 🛠️ CORRECTION ICI : On utilise edit_original_response au lieu de message.edit
+                await interaction.edit_original_response(view=self)
+                await interaction.followup.send(f"❌ Impossible de vendre {self.pokeweed_name}. (As-tu déjà tout vendu ?)", ephemeral=True)
                 return
 
             self.total_owned -= 1
             sales_count += 1
 
             # Mise à jour des grades s'il a dépassé un palier grâce à l'argent
+            from . import helpers # Assure-toi que helpers est bien importé ou accessible
             new_total = await database.get_user_points(database.db_pool, str(self.user_id))
             await helpers.update_member_prestige_role(interaction.user, new_total)
 
             # Modification dynamique du bouton
             if self.total_owned > 0:
-                self.claim_btn.label = f"Vendre 1 double ({self.points_value} pts) 💰 [{10 - sales_count} ventes restantes]"
+                self.claim_btn.label = f"Vendre 1 double ({self.points_value} pts) 💰 [{10 - sales_count}/10]"
                 if self.total_owned == 1:
                     self.claim_btn.style = discord.ButtonStyle.danger
-                    self.claim_btn.label = f"Vendre l'unique ({self.points_value} pts) 💰 [{10 - sales_count} ventes restantes]"
+                    self.claim_btn.label = f"Vendre l'unique ({self.points_value} pts) 💰 [{10 - sales_count}/10]"
             else:
                 self.claim_btn.label = "Plus de cartes ❌"
                 self.claim_btn.disabled = True
 
-            await interaction.message.edit(view=self)
-            await interaction.followup.send(f"✅ Vente réussie ! **+{self.points_value} pts** pour {self.pokeweed_name}. ({sales_count}/10 ventes)", ephemeral=True)
+            # 🛠️ CORRECTION ICI AUSSI
+            await interaction.edit_original_response(view=self)
+            
+            await interaction.followup.send(f"✅ Vente réussie ! **+{self.points_value} pts** pour {self.pokeweed_name}.", ephemeral=True)
 
         except Exception as e:
             logger.exception(f"Erreur claim_callback pour {self.user_id} : {e}")
