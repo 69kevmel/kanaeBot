@@ -9,6 +9,29 @@ from . import config, database, helpers, state, tasks
 
 logger = logging.getLogger(__name__)
 
+class WelcomeSuiteView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None) # Le bouton ne désactive jamais
+
+    @discord.ui.button(label="Ici la suite ! 🎁", style=discord.ButtonStyle.success, custom_id="welcome_suite_btn")
+    async def suite_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Le texte éphémère qui explique tout
+        suite_text = (
+            "🤖 **Bienvenue sur Kanaé !**\n"
+            "Kanaé, c'est ton pour chiller, fumer et t'amuser avec la commu'.\n\n"
+            "🏆 **LE KANAÉ D'OR (Le grand concours) :**\n"
+            "Ici, ton activité te rapporte des points ! Parle en vocal, poste des photos de tes plus belles battes, ou joue au casino pour grimper en grade. Le but ? Devenir l'Empereur de Kanaé et rafler le Kanaé d'Or !\n\n"
+            "• `/help-concours` : Guide complet des différentes façons de gagner des points 📚\n\n"
+            "🎮 **LES COMMANDES DE BASE :**\n"
+            "• `/score` : Voir ton nombre de points.\n"
+            "• `/wakeandbake` : Ton cadeau quotidien (à faire tous les jours pour ton bonus !).\n"
+            "• `/booster` : Ouvre un paquet de cartes Pokéweed (1 fois toutes les 12h).\n"
+            "• `/bet` & `/douille` : Le coin casino pour miser tes points.\n"
+            "• `/help-commandes` : Pour voir tout le reste de mes capacités !\n\n"
+            f"📜 **Dernier truc :** N'oublie pas de jeter un œil aux règles dans <#{config.CHANNEL_REGLES_ID}> pour que tout se passe bien. Bonne fumette ! 💨"
+        )
+        await interaction.response.send_message(suite_text, ephemeral=True)
+
 class InfosConcoursButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -160,6 +183,32 @@ def setup(bot: commands.Bot):
                 asyncio.create_task(award_after_2h())
         except Exception as e:
             logger.warning("Parrainage detection failed: %s", e)
+
+        # --- 2. MESSAGE PUBLIC DANS LE SALON BIENVENUE ---
+        try:
+            welcome_channel = member.guild.get_channel(config.WELCOME_CHANNEL_ID)
+            
+            if welcome_channel:
+                blabla_mention = f"<#{config.BLABLA_CHANNEL_ID}>"
+                presente_mention = f"<#{config.CHANNEL_PRESENTE_TOI_ID}>"
+
+                welcome_text = (
+                    f"🌿 Bienvenue dans la commu', {member.mention} 💨\n"
+                    f"Installe-toi bien, roules-en un long et passe dire bonjour dans {blabla_mention} 🛋️\n"
+                    f"N'oublie pas de poser ta petite présentation dans {presente_mention} (c’est pas obligatoire, mais c’est le top pour faire connaissance avec les autres !) ✨"
+                )
+
+                # On génère la vue avec le bouton "Ici la suite !" (assure-toi que WelcomeSuiteView est bien défini en haut de ton fichier)
+                view = WelcomeSuiteView()
+
+                await welcome_channel.send(content=welcome_text, view=view)
+                logger.info(f"Message public de bienvenue envoyé pour {member.name}")
+            else:
+                logger.warning("❌ Salon de bienvenue introuvable (vérifie WELCOME_CHANNEL_ID).")
+                
+        except Exception as e:
+            logger.warning("Échec de l'envoi du message public: %s", e)
+            
         try:
             view = InfosConcoursButton()
             view.add_item(discord.ui.Button(
@@ -181,22 +230,36 @@ def setup(bot: commands.Bot):
                 "Avant de te lancer, check les règles 📜 et **présente-toi** 🙋 (Montre qui t'es, en fait).\n\n"
                 "Ensuite, n'hésite pas à découvrir les autres salons et à te balader 🚀.\n\n"
                 "**(👻 Discret ? Si tu veux changer ton pseudo, clique droit sur ton profil à droite et choisis 'Changer le pseudo')**\n\n"
-                "📦 **Nouveau ! Le Pokéweed est là !**\n"
+                "🏆 **LE KANAÉ D'OR (Notre grand concours) :**\n"
+                "Ici, presque tout ce que tu fais te rapporte des points (vocaux, photos, messages, casino...). "
+                "Grimpe en grade, débloque des rôles de prestige et tente de devenir l'Empereur de Kanaé pour rafler le Kanaé d'Or ! 👑\n\n"
+                "📦 **Le Pokéweed est là !**\n"
                 "   ➕ Collectionne les 31 strains fusionnés avec des Pokémon 🌈\n"
                 "   🃏 Ouvre des boosters, attrape des Pokéweeds sauvages, et complète ton Pokédex !\n"
-                "   🌿 (psst, ah oui, et surtout en jouant, plus ton pokéweed est rare, plus il te rapporte de points pour le concours) 👀\n\n"
-                "🎮 **Commandes utiles à découvrir :**\n\n"
+                "   🌿 (psst... tu peux même revendre tes doublons depuis ton pokédex pour gagner des points !) 👀\n\n"
+                "🎮 **LES COMMANDES À CONNAÎTRE :**\n\n"
+                "🏆 **Économie & Casino :**\n"
+                "   ➡️ **/wakeandbake** – Ta récompense gratuite quotidienne (fais grimper ta série !) 🌅\n"
+                "   ➡️ **/score** – Voir ton score et ton rang 📊\n"
+                "   ➡️ **/top-5** – Voir les 5 meilleurs fumeurs du serveur 🏆\n"
+                "   ➡️ **/bet** {mise} – Parie tes points au casino (48% de chance de doubler) 🎰\n"
+                "   ➡️ **/douille** {mise} – Roulette russe multijoueur (jusqu'à 6 joueurs) 🔫\n"
+                "   ➡️ **/help-concours** – Guide complet des différentes façons de gagner des points 📚\n\n"
+                "🌿 **Pokéweed :**\n"
+                "   ➡️ **/booster** – Ouvre 4 Pokéweeds aléatoires 🔥 (1x toutes les 12h)\n"
+                "   ➡️ **/capture** – Dégaine vite pour attraper le Pokéweed sauvage 💨\n"
+                "   ➡️ **/pokedex** – Affiche ta collection ou vends tes doubles 🌿\n\n"
+                "💜 **Réseaux & Twitch (Points gratuits) :**\n"
+                "   ➡️ **/link-twitch** {pseudo} – Relie ton compte pour les récompenses de follow/sub 🎁\n"
+                "   ➡️ **/mes-reseaux** – Voir la liste de tes comptes liés 🌐\n"
+                "   ➡️ **/refresh-points** – Récupérer tes points Twitch 🔄\n"
+                "   ➡️ **/unlink-twitch** – Délier ton compte en cas d'erreur\n\n"
                 "🎵 **Musique :**\n"
                 "   ➡️ **/play** {musique} – Lance une musique dans **KanaéMUSIC** 🎶\n\n"
-                "🧠 **IA :**\n"
-                "   ➡️ **/hey** {message} – Discute avec l'IA de **Kanaé** 🤖\n\n"
-                "🏆 **Concours Kanaé :**\n"
-                "   ➡️ **/score** – Voir ton score et ton rang 📊\n"
-                "   ➡️ **/top-5** – Voir les 5 meilleurs fumeurs du mois 🏆\n\n"
-                "🌿 **Pokéweed (nouveauté) :**\n"
-                "   ➡️ **/booster** – Ouvre 4 Pokéweeds aléatoires 🔥 (1x/jour)\n"
-                "   ➡️ **/capture** – Attrape le Pokéweed sauvage dans le salon Pokéweed 💨\n"
-                "   ➡️ **/pokedex** – Affiche ta collection ou celle d’un autre 🌿\n"
+                "🧠 **Général & Staff :**\n"
+                "   ➡️ **/hey** {message} – Discute avec l'IA de **Kanaé** 🤖\n"
+                "   ➡️ **/help-commandes** – Affiche ce menu d'aide complet 🛠️\n"
+                "   ➡️ **/candidature** – Formulaire pour postuler et rejoindre le staff 📝\n"
             )
 
             await helpers.safe_send_dm(member, message)
