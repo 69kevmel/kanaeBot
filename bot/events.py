@@ -28,6 +28,8 @@ class WelcomeSuiteView(discord.ui.View):
             "• `/booster` : Ouvre un paquet de cartes Pokéweed (1 fois toutes les 12h).\n"
             "• `/bet` & `/douille` : Le coin casino pour miser tes points.\n"
             "• `/help-commandes` : Pour voir tout le reste de mes capacités !\n\n"
+            f"🎭 **CHOISIS TON CAMP :**\n"
+            f"Passe faire un tour dans <#{config.REACTION_ROLE_CHANNEL_ID}> pour afficher tes préférences (**Team Weed**, **Team Shit** ou les deux !) et débloquer ton rôle exclusif. 💨\n\n"
             f"📜 **Dernier truc :** N'oublie pas de jeter un œil aux règles dans <#{config.CHANNEL_REGLES_ID}> pour que tout se passe bien. Bonne fumette ! 💨"
         )
         await interaction.response.send_message(suite_text, ephemeral=True)
@@ -259,7 +261,9 @@ def setup(bot: commands.Bot):
                 "🧠 **Général & Staff :**\n"
                 "   ➡️ **/hey** {message} – Discute avec l'IA de **Kanaé** 🤖\n"
                 "   ➡️ **/help-commandes** – Affiche ce menu d'aide complet 🛠️\n"
-                "   ➡️ **/candidature** – Formulaire pour postuler et rejoindre le staff 📝\n"
+                "   ➡️ **/candidature** – Formulaire pour postuler et rejoindre le staff 📝\n\n"
+                f"🎭 **CHOISIS TON CAMP :**\n"
+                f"Passe faire un tour dans <#{config.REACTION_ROLE_CHANNEL_ID}> pour afficher tes préférences (**Team Weed**, **Team Shit** ou les deux !) et débloquer ton rôle exclusif. 💨\n\n"
             )
 
             await helpers.safe_send_dm(member, message)
