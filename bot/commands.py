@@ -336,7 +336,6 @@ def setup(bot: commands.Bot):
     # ---------------------------------------
     # /booster (SAFE)
     # ---------------------------------------
-    # ✅ VERSION SÛRE ET ILLUSTRÉE DU /booster — commands.py
     _inflight_boosters: set[int] = set()
 
     def sanitize_filename(name: str) -> str:
@@ -371,47 +370,22 @@ def setup(bot: commands.Bot):
                             await interaction.edit_original_response(content=f"🕒 Attends encore **{h}h {m}min** pour un nouveau booster.")
                             return
 
-            # Tirage
+            # Tirage des 4 cartes
             async with database.db_pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     await cur.execute("SELECT * FROM pokeweeds ORDER BY RAND() LIMIT 4;")
                     rewards = await cur.fetchall()
-                    pokeweed_channel = interaction.client.get_channel(config.CHANNEL_POKEWEED_ID)
-
-                    stars = {
-                        "Commun": "🌿",
-                        "Peu Commun": "🌱🌿",
-                        "Rare": "🌟",
-                        "Très Rare": "💎",
-                        "Légendaire": "🌈👑",
-                    }
-
-                    resume_lines = [
-                        "🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀",
-                        "",
-                        f"🎉 {interaction.user.mention} a ouvert un **booster** et a obtenu :",
-                        ""
-                    ]
-
-                    for pokeweed in rewards:
-                        pid, name, hp, cap_pts, power, rarity = pokeweed[:6]
-                        resume_lines.append(f"{stars.get(rarity, '🌿')} {name} — 💥 {power} | ❤️ {hp} | ✨ {rarity}")
-
-                    resume_lines.append("")
-                    resume_lines.append("🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀")  # ✅ ligne d'emojis en bas
-
-                    resume_message = "\n".join(resume_lines)
-
-                    if pokeweed_channel:
-                        await pokeweed_channel.send(resume_message)
 
             points_by_rarity = {"Commun": 2, "Peu Commun": 4, "Rare": 8, "Très Rare": 12, "Légendaire": 15}
             bonus_new = 5
+            
             embeds = []
             files = []
-            total_points = 0
+            views = [] # ✅ Nouvelle liste pour stocker les boutons de vente
             inserts = []
+            total_points = 0
 
+            # Vérification des doublons et préparation des messages
             async with database.db_pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     for pokeweed in rewards:
@@ -419,13 +393,13 @@ def setup(bot: commands.Bot):
                         await cur.execute("SELECT COUNT(*) FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s;", (user_id, pid))
                         owned = (await cur.fetchone())[0]
 
-                        # Points
+                        # Points bonus
                         pts = points_by_rarity.get(rarity, 0)
                         if owned == 0:
                             pts += bonus_new
                         total_points += pts
 
-                        # Image
+                        # Préparation de l'Embed et de l'image
                         rarity_folder = rarity.lower().replace(" ", "").replace("é", "e")
                         filename = sanitize_filename(name) + ".png"
                         image_path = f"./assets/pokeweed/saison-1/{rarity_folder}/{filename}"
@@ -441,17 +415,18 @@ def setup(bot: commands.Bot):
                             files.append(file)
                         except Exception:
                             embed.description += "\n⚠️ Image non trouvée."
+                            files.append(None) # On garde l'index aligné pour la suite
 
                         embeds.append(embed)
                         inserts.append((user_id, pid))
+                        
+                        # ✅ Création du bouton Vendre pour CHAQUE carte tirée
+                        total_owned = owned + 1 # Car il vient de l'obtenir
+                        view = ClaimPokeweedView(user_id, pid, name, cap_pts, total_owned)
+                        views.append(view)
 
-            # Affichage user
-            await interaction.edit_original_response(content=f"🃏 Booster ouvert ! 🎉 Tu gagnes **{total_points} points** dans le concours Kanaé !")
-            for embed, file in zip(embeds, files):
-                await interaction.followup.send(embed=embed, file=file, ephemeral=True)
-                await asyncio.sleep(0.3)
-
-            # MAJ DB finale seulement si tout s'est bien passé
+            # ✅ MAJ DB en PREMIER : On sauvegarde les cartes et on reset le cooldown
+            # (Obligatoire pour que le bouton Vendre fonctionne instantanément)
             async with database.db_pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     for uid, pid in inserts:
@@ -461,9 +436,44 @@ def setup(bot: commands.Bot):
                     await helpers.update_member_prestige_role(interaction.user, final_pts)
                     await cur.execute("INSERT INTO booster_cooldowns (user_id, last_opened) VALUES (%s, %s) ON DUPLICATE KEY UPDATE last_opened = %s;", (user_id, now, now))
 
+            # ✅ Envoi de l'annonce Publique
+            pokeweed_channel = interaction.client.get_channel(config.CHANNEL_POKEWEED_ID)
+            stars = {
+                "Commun": "🌿",
+                "Peu Commun": "🌱🌿",
+                "Rare": "🌟",
+                "Très Rare": "💎",
+                "Légendaire": "🌈👑",
+            }
+            resume_lines = [
+                "🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀",
+                "",
+                f"🎉 {interaction.user.mention} a ouvert un **booster** et a obtenu :",
+                ""
+            ]
+            for pokeweed in rewards:
+                pid, name, hp, cap_pts, power, rarity = pokeweed[:6]
+                resume_lines.append(f"{stars.get(rarity, '🌿')} {name} — 💥 {power} | ❤️ {hp} | ✨ {rarity}")
+
+            resume_lines.append("")
+            resume_lines.append("🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀🌀")
+
+            if pokeweed_channel:
+                await pokeweed_channel.send("\n".join(resume_lines))
+
+            # ✅ Envoi Privé au joueur (avec les Embeds, Images et Boutons)
+            await interaction.edit_original_response(content=f"🃏 Booster ouvert ! 🎉 Tu gagnes **{total_points} points** dans le concours Kanaé !")
+            
+            for embed, file, view in zip(embeds, files, views):
+                if file:
+                    await interaction.followup.send(embed=embed, file=file, view=view, ephemeral=True)
+                else:
+                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                await asyncio.sleep(0.3)
+
         except Exception as e:
             logger.exception(f"Erreur dans /booster pour {user_id} : {e}")
-            await interaction.followup.send("❌ Une erreur est survenue. Réessaie un peu plus tard, rien n'a été consommé.", ephemeral=True)
+            await interaction.followup.send("❌ Une erreur est survenue. Réessaie un peu plus tard.", ephemeral=True)
         finally:
             _inflight_boosters.discard(user_id)
 
