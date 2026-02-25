@@ -128,6 +128,7 @@ def setup(bot: commands.Bot):
         except Exception as e:
             logger.error("Slash command sync failed: %s", e)
         #tasks.weekly_recap.start(bot)
+        tasks.monthly_winner_announcement.start(bot)
         tasks.daily_scores_backup.start(bot)
         tasks.update_voice_points.start(bot)
         tasks.fetch_and_send_news.start(bot)
@@ -328,8 +329,6 @@ def setup(bot: commands.Bot):
                         await database.set_daily_limit(database.db_pool, user_id, channel_id, date_str)
                         new_total = await database.add_points(database.db_pool, user_id, config.SPECIAL_CHANNEL_IDS[channel_id])
                         await helpers.update_member_prestige_role(message.author, new_total)
-                        if new_total in [10, 50, 100]:
-                            await helpers.safe_send_dm(message.author, f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀")
 
         # --- ✅ NOUVEAU : gestion des messages dans les THREADS (Forum)
         if isinstance(message.channel, discord.Thread):
@@ -376,8 +375,6 @@ def setup(bot: commands.Bot):
         await database.set_reaction_counted(database.db_pool, message.id, reactor_id)
         new_total = await database.add_points(database.db_pool, author_id, 2)
         await helpers.update_member_prestige_role(author, new_total)
-        if new_total in [10, 50, 100]:
-            await helpers.safe_send_dm(author, f"🎉 Bravo frérot, t'as atteint le palier des **{new_total} points** ! 🚀")
 
     @bot.event
     async def on_thread_create(thread: discord.Thread):

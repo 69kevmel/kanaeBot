@@ -180,6 +180,15 @@ async def ensure_tables(pool):
                     sale_date DATETIME
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
             """)
+            # Table pour les scores mensuels (pour le classement)
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS monthly_scores (
+                    user_id BIGINT PRIMARY KEY,
+                    points INT NOT NULL
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                """
+            )
     logger.info("Database tables checked/created")
 
 async def get_user_points(pool, user_id):
@@ -189,31 +198,67 @@ async def get_user_points(pool, user_id):
             row = await cur.fetchone()
             return row[0] if row else 0
 
-async def set_user_points(pool, user_id, pts):
+async def set_user_points(pool, user_id, pts, categorie="vie"):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                INSERT INTO scores (user_id, points) VALUES (%s, %s)
-                ON DUPLICATE KEY UPDATE points = %s;
-                """,
-                (int(user_id), pts, pts),
-            )
+            if categorie == "vie":
+                # On modifie uniquement le score global
+                await cur.execute(
+                    """
+                    INSERT INTO scores (user_id, points) VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE points = %s;
+                    """,
+                    (int(user_id), pts, pts),
+                )
+            elif categorie == "mois":
+                # On modifie uniquement le score du mois
+                await cur.execute(
+                    """
+                    INSERT INTO monthly_scores (user_id, points) VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE points = %s;
+                    """,
+                    (int(user_id), pts, pts),
+                )
             return pts
 
 async def add_points(pool, user_id, pts):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
+            # 1. Ajout/Soustraction dans les scores À VIE (Bloqué à 0 minimum)
             await cur.execute(
                 """
-                INSERT INTO scores (user_id, points) VALUES (%s, %s)
-                ON DUPLICATE KEY UPDATE points = points + %s;
+                INSERT INTO scores (user_id, points) VALUES (%s, GREATEST(0, %s))
+                ON DUPLICATE KEY UPDATE points = GREATEST(0, CAST(points AS SIGNED) + %s);
                 """,
                 (int(user_id), pts, pts),
             )
+            
+            # 2. Ajout/Soustraction dans les scores MENSUELS (Bloqué à 0 minimum)
+            await cur.execute(
+                """
+                INSERT INTO monthly_scores (user_id, points) VALUES (%s, GREATEST(0, %s))
+                ON DUPLICATE KEY UPDATE points = GREATEST(0, CAST(points AS SIGNED) + %s);
+                """,
+                (int(user_id), pts, pts),
+            )
+            
+            # On retourne toujours le score à vie pour les rôles de prestige
             await cur.execute("SELECT points FROM scores WHERE user_id=%s;", (int(user_id),))
             row = await cur.fetchone()
             return row[0]
+
+async def reset_monthly_scores(pool):
+    """Remet tous les compteurs du mois à zéro."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("UPDATE monthly_scores SET points = 0;")
+
+async def get_user_monthly_points(pool, user_id):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT points FROM monthly_scores WHERE user_id=%s;", (int(user_id),))
+            row = await cur.fetchone()
+            return row[0] if row else 0
 
 async def has_daily_limit(pool, user_id, channel_id, date):
     async with pool.acquire() as conn:

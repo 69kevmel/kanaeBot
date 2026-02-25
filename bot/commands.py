@@ -142,10 +142,17 @@ class DouilleView(discord.ui.View):
             await interaction.response.send_message("❌ Le barillet est plein (6 joueurs max) !", ephemeral=True)
             return
             
-        # On vérifie si le joueur a assez de points pour suivre la mise
-        pts = await database.get_user_points(database.db_pool, str(user_id))
-        if pts < self.mise:
-            await interaction.response.send_message(f"❌ T'es à sec. Il te faut {self.mise} points pour jouer.", ephemeral=True)
+        # On vérifie si le joueur a assez de points pour suivre la mise (Mois + À Vie)
+        current_points = await database.get_user_points(database.db_pool, str(user_id))
+        monthly_points = await database.get_user_monthly_points(database.db_pool, str(user_id))
+        solde_jouable = min(current_points, monthly_points)
+
+        if solde_jouable < self.mise:
+            await interaction.response.send_message(
+                f"❌ T'es à sec ! Il te faut au moins **{self.mise} points jouables** pour rejoindre.\n"
+                f"*(Rappel: Tu as {monthly_points} pts ce mois-ci et {current_points} pts à vie)*", 
+                ephemeral=True
+            )
             return
             
         self.players.add(user_id)
@@ -267,68 +274,134 @@ def setup(bot: commands.Bot):
 
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
+                # Récupérer classement global
                 await cur.execute("SELECT user_id, points FROM scores ORDER BY points DESC;")
-                sorted_rows = await cur.fetchall()
+                global_rows = await cur.fetchall()
+                # Récupérer classement mensuel
+                await cur.execute("SELECT user_id, points FROM monthly_scores ORDER BY points DESC;")
+                monthly_rows = await cur.fetchall()
+
+        # Fonction locale pour calculer la position et les points en ignorant les exclus
+        def get_rank_and_score(rows):
+            filtered = []
+            for uid, pts in rows:
+                member_obj = interaction.guild.get_member(int(uid))
+                if member_obj and any(role.id == config.EXCLUDED_ROLE_ID for role in member_obj.roles):
+                    continue
+                filtered.append((uid, pts))
+            
+            position = None
+            user_score = 0
+            for i, (uid, pts) in enumerate(filtered, 1):
+                if str(uid) == user_id:
+                    position = i
+                    user_score = pts
+                    break
+            return position, user_score
+
+        global_pos, global_score = get_rank_and_score(global_rows)
+        monthly_pos, monthly_score = get_rank_and_score(monthly_rows)
+
+        # Création de l'Embed stylé
+        embed = discord.Embed(
+            title=f"🏆 Profil de {target.display_name}",
+            color=discord.Color.gold()
+        )
+        embed.set_thumbnail(url=target.display_avatar.url)
+        
+        rang_mensuel = f"(Rang #{monthly_pos})" if monthly_pos else "(Aucun point ce mois-ci)"
+        embed.add_field(
+            name="🥇 Kaanaé d'Or (Ce mois-ci)", 
+            value=f"**{monthly_score} points** {rang_mensuel}", 
+            inline=False
+        )
+        
+        rang_global = f"(Rang #{global_pos})" if global_pos else "(Aucun point total)"
+        embed.add_field(
+            name="🌟 Score à vie (Total)", 
+            value=f"**{global_score} points** {rang_global}", 
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ---------------------------------------
+    # /top (Mois et À vie)
+    # ---------------------------------------
+    @bot.tree.command(name="top", description="Affiche le classement des meilleurs fumeurs")
+    @app_commands.describe(categorie="Choisis quel classement tu veux voir")
+    @app_commands.choices(categorie=[
+        app_commands.Choice(name="🏆 Mensuel (Kaanaé d'Or)", value="mois"),
+        app_commands.Choice(name="🌟 À vie (Panthéon)", value="vie"),
+    ])
+    async def top(interaction: discord.Interaction, categorie: app_commands.Choice[str]):
+        is_monthly = (categorie.value == "mois")
+        table = "monthly_scores" if is_monthly else "scores"
+        header = "🏆 Classement du Mois : Kaanaé d'Or 🏆" if is_monthly else "🌟 Classement à Vie : Panthéon 🌟"
+        
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(f"SELECT user_id, points FROM {table} ORDER BY points DESC;")
+                rows = await cur.fetchall()
 
         filtered = []
-        for uid, pts in sorted_rows:
-            member = interaction.guild.get_member(int(uid))
-            if member and any(role.id == config.EXCLUDED_ROLE_ID for role in member.roles):
+        for uid, pts in rows:
+            member_obj = interaction.guild.get_member(int(uid))
+            if member_obj and any(role.id == config.EXCLUDED_ROLE_ID for role in member_obj.roles):
                 continue
-            filtered.append((uid, pts))
-
-        position = None
-        user_score = 0
-        for i, (uid, pts) in enumerate(filtered, 1):
-            if str(uid) == user_id:
-                position = i
-                user_score = pts
+            if pts > 0:
+                filtered.append((uid, pts))
+            if len(filtered) >= 5:
                 break
 
-        if position:
-            await interaction.response.send_message(
-                f"📊 **{target.display_name}** → {user_score} pts (Rang #{position})",
-                ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(
-                f"📊 **{target.display_name}** n’a pas encore de points (ou son rôle est exclu).",
-                ephemeral=True
-            )
-
-    # ---------------------------------------
-    # /top-5
-    # ---------------------------------------
-    @bot.tree.command(name="top-5", description="Affiche le top 5 des meilleurs fumeurs")
-    async def top_5(interaction: discord.Interaction):
-        message = await helpers.build_top5_message(
-            bot,
-            interaction.guild,
-            mention_users=False,
-            header="🌿 Top 5 Fumeurs Kanaé 🌿",
-        )
-        if not message:
-            await interaction.response.send_message(
-                "📊 Pas encore de points enregistrés (ou tous les membres sont exclus).",
-                ephemeral=True,
-            )
+        if not filtered:
+            await interaction.response.send_message("📊 Pas encore de points enregistrés pour ce classement.", ephemeral=True)
             return
-        await interaction.response.send_message(message, ephemeral=True)
+
+        icons = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+        lines = [f"**{header}**\n"]
+        for idx, (uid, pts) in enumerate(filtered):
+            user = interaction.guild.get_member(int(uid))
+            name = user.display_name if user else f"Utilisateur Inconnu"
+            lines.append(f"{icons[idx]} {name} \u2192 **{pts} pts**")
+        
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
     # ---------------------------------------
     # /set (admin)
     # ---------------------------------------
-    @bot.tree.command(name="set", description="Définit manuellement le total de points d'un utilisateur")
-    @app_commands.describe(user_id="ID Discord de l'utilisateur", nouveau_total="Nombre de points à définir")
-    async def set_points(interaction: discord.Interaction, user_id: str, nouveau_total: int):
+    @bot.tree.command(name="set", description="Définit manuellement le score d'un utilisateur")
+    @app_commands.describe(
+        user_id="ID Discord de l'utilisateur", 
+        nouveau_total="Nombre de points à définir",
+        categorie="Quel score veux-tu modifier ?"
+    )
+    @app_commands.choices(categorie=[
+        app_commands.Choice(name="🌟 Score à vie (Global)", value="vie"),
+        app_commands.Choice(name="🏆 Score du Mois (Kaanaé d'Or)", value="mois"),
+    ])
+    async def set_points(interaction: discord.Interaction, user_id: str, nouveau_total: int, categorie: app_commands.Choice[str]):
+        # Petite sécurité admin au cas où
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Admin uniquement.", ephemeral=True)
+            return
+
         try:
             guild = interaction.guild
             member = guild.get_member(int(user_id))
             if not member:
                 await interaction.response.send_message("❌ Utilisateur introuvable dans cette guild.", ephemeral=True)
                 return
-            await database.set_user_points(database.db_pool, user_id, nouveau_total)
-            await interaction.response.send_message(f"✅ Le score de {member.display_name} a été mis à **{nouveau_total} points**.", ephemeral=True)
+            
+            # On envoie la valeur ("vie" ou "mois") à la fonction de base de données
+            await database.set_user_points(database.db_pool, user_id, nouveau_total, categorie.value)
+            
+            # Message de confirmation stylé
+            nom_categorie = "À VIE 🌟" if categorie.value == "vie" else "MENSUEL 🏆"
+            await interaction.response.send_message(
+                f"✅ Le score **{nom_categorie}** de {member.display_name} a été défini sur **{nouveau_total} points**.", 
+                ephemeral=True
+            )
         except Exception as e:
             logger.error("/set failed: %s", e)
             await interaction.response.send_message("❌ Une erreur est survenue en définissant le score.", ephemeral=True)
@@ -720,25 +793,6 @@ def setup(bot: commands.Bot):
         await interaction.response.send_message("🌿 31 Pokéweed insérés !", ephemeral=True)
 
     # ---------------------------------------
-    # /reset-scores (admin)
-    # ---------------------------------------
-    @bot.tree.command(name="reset-scores", description="Réinitialise tous les scores du concours à 0 (ADMIN uniquement)")
-    async def reset_scores(interaction: discord.Interaction):
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Tu dois être administrateur pour faire ça frérot.", ephemeral=True)
-            return
-
-        try:
-            async with database.db_pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    await cur.execute("UPDATE scores SET points = 0;")
-            await interaction.response.send_message("✅ Tous les scores ont été réinitialisés à **0** pour le concours.", ephemeral=False)
-            logger.info("Tous les scores du concours ont été remis à zéro.")
-        except Exception as e:
-            logger.error("/reset-scores failed: %s", e)
-            await interaction.response.send_message("❌ Erreur lors de la remise à zéro des scores.", ephemeral=True)
-
-    # ---------------------------------------
     # /link-twitch
     # ---------------------------------------
     @bot.tree.command(name="link-twitch", description="Lie ton compte Twitch")
@@ -1089,11 +1143,17 @@ def setup(bot: commands.Bot):
             await interaction.followup.send("❌ Frérot, tu dois parier un montant positif (au moins 1 point).", ephemeral=True)
             return
 
-        # 2. Sécurité : Vérifier si l'utilisateur a assez de points
+        # 2. Sécurité : Vérifier si l'utilisateur a assez de points (mois + vie)
         current_points = await database.get_user_points(database.db_pool, user_id)
-        if current_points < mise:
+        monthly_points = await database.get_user_monthly_points(database.db_pool, user_id)
+        
+        # Le solde jouable est le minimum entre sa richesse à vie et sa richesse du mois
+        solde_jouable = min(current_points, monthly_points)
+
+        if solde_jouable < mise:
             await interaction.followup.send(
-                f"❌ T'es à sec ! Tu n'as que **{current_points} points**, tu ne peux pas parier **{mise}**.", 
+                f"❌ T'es à sec ! Tu ne peux parier que ce que tu possèdes sur les DEUX compteurs (Maximum jouable: **{solde_jouable}**).\n"
+                f"*(Rappel: tu as **{monthly_points} pts** ce mois-ci et **{current_points} pts** à vie)*.", 
                 ephemeral=True
             )
             return
@@ -1110,7 +1170,7 @@ def setup(bot: commands.Bot):
                 title="🎰 CASINO KANAÉ - BINGO ! 🎉",
                 description=f"Incroyable {interaction.user.mention} ! T'as eu le nez fin.\n\n"
                             f"✅ Tu as parié **{mise} points** et tu as **DOUBLÉ** ta mise !\n"
-                            f"💰 Ton nouveau solde : **{new_total} points**.",
+                            f"💰 Ton nouveau solde à vie : **{new_total} points**.",
                 color=discord.Color.green()
             )
             await interaction.followup.send(embed=embed)
@@ -1119,14 +1179,14 @@ def setup(bot: commands.Bot):
             # On soustrait la mise en envoyant un nombre négatif
             new_total = await database.add_points(database.db_pool, user_id, -mise)
             
-            # Mise à jour du rôle (s'il perd beaucoup, il peut être rétrogradé en repassant dans la fonction)
+            # Mise à jour du rôle (s'il perd beaucoup, il peut être rétrogradé)
             await helpers.update_member_prestige_role(interaction.user, new_total)
             
             embed = discord.Embed(
                 title="🎰 CASINO KANAÉ - COUP DUR... 💸",
                 description=f"Aïe coup dur pour {interaction.user.mention}...\n\n"
                             f"❌ Le KanaéBot a raflé la mise ! Tu viens de perdre **{mise} points**.\n"
-                            f"📉 Ton nouveau solde : **{new_total} points**.\n\n"
+                            f"📉 Ton nouveau solde à vie : **{new_total} points**.\n\n"
                             f"*La maison gagne toujours :) (Mais tu peux toujours recommencer !)*",
                 color=discord.Color.red()
             )
@@ -1182,9 +1242,17 @@ def setup(bot: commands.Bot):
             return
             
         user_id = str(interaction.user.id)
-        pts = await database.get_user_points(database.db_pool, user_id)
-        if pts < mise:
-            await interaction.response.send_message(f"❌ T'es à sec frérot. Il te faut {mise} points.", ephemeral=True)
+        
+        # Vérification des points (Mois + À Vie) pour le créateur
+        current_points = await database.get_user_points(database.db_pool, user_id)
+        monthly_points = await database.get_user_monthly_points(database.db_pool, user_id)
+        solde_jouable = min(current_points, monthly_points)
+
+        if solde_jouable < mise:
+            await interaction.response.send_message(
+                f"❌ T'es à sec frérot ! Tu dois parier un montant que tu possèdes sur les DEUX compteurs (Max jouable: **{solde_jouable}**).", 
+                ephemeral=True
+            )
             return
             
         view = DouilleView(interaction.user.id, mise)
@@ -1209,11 +1277,12 @@ def setup(bot: commands.Bot):
             await interaction.followup.send("❌ Pas assez de couilles sur le serveur... La partie est annulée (il faut au moins 2 joueurs) !", ephemeral=False)
             return
             
-        # Sécurité : on revérifie les points juste avant le tirage au cas où un mec a dépensé ses points entre-temps
+        # Sécurité ultime : on revérifie les points juste avant le tirage au cas où un mec a dépensé ses points entre-temps
         final_players = []
         for pid in view.players:
-            pts = await database.get_user_points(database.db_pool, str(pid))
-            if pts >= mise:
+            p_current = await database.get_user_points(database.db_pool, str(pid))
+            p_monthly = await database.get_user_monthly_points(database.db_pool, str(pid))
+            if min(p_current, p_monthly) >= mise:
                 final_players.append(pid)
                 
         if len(final_players) < 2:
@@ -1246,7 +1315,6 @@ def setup(bot: commands.Bot):
             color=discord.Color.red()
         )
         await interaction.followup.send(embed=res_embed)
-
     # ---------------------------------------
     # /spawn (admin)
     # ---------------------------------------
