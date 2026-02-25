@@ -124,6 +124,98 @@ class ClaimPokeweedView(discord.ui.View):
         finally:
             _inflight_claims.discard(self.user_id)
 
+class LivePreviewView(discord.ui.View):
+    def __init__(self, bot, author, content_to_send):
+        super().__init__(timeout=120) # 2 minutes pour confirmer
+        self.bot = bot
+        self.author = author
+        self.content_to_send = content_to_send
+
+    @discord.ui.button(label="Confirmer l'annonce ✅", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author.id:
+            await interaction.response.send_message("❌ Touche pas à ça frérot, c'est pas ton annonce.", ephemeral=True)
+            return
+        
+        # On revérifie la limite au cas où
+        count = await database.get_weekly_live_count(database.db_pool, self.author.id)
+        if count >= 3:
+            await interaction.response.send_message("❌ T'as déjà atteint ta limite de 3 annonces sur les 7 derniers jours !", ephemeral=True)
+            return
+
+        # On enregistre l'annonce dans la BDD
+        await database.add_live_announcement(database.db_pool, self.author.id)
+        
+        # On envoie dans le salon des annonces
+        channel = self.bot.get_channel(config.CHANNEL_ANNONCES_ID)
+        if channel:
+            await channel.send(self.content_to_send)
+            
+        # On désactive les boutons
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="✅ **Ton live a été annoncé avec succès !** Bon stream frérot 🌿", view=self)
+
+    @discord.ui.button(label="Annuler ❌", style=discord.ButtonStyle.danger)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author.id:
+            return
+            
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="❌ **Annonce annulée.** T'as eu un coup de pression ?", view=self)
+
+
+class LiveModal(discord.ui.Modal, title='Annonce ton Live Twitch !'):
+    titre = discord.ui.TextInput(
+        label='Titre de ton annonce',
+        placeholder='Ex: SOIRÉE SMOKE CHILL, TRYHARD RANKED DEF...',
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=100
+    )
+    
+    jeu = discord.ui.TextInput(
+        label='Sur quel jeu ?',
+        placeholder='Ex: Just Chatting, Valorant, GTA V...',
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=50
+    )
+
+    lien = discord.ui.TextInput(
+        label='Lien de ta chaîne Twitch (entier)',
+        placeholder='Ex: https://twitch.tv/kanae420',
+        style=discord.TextStyle.short,
+        required=True
+    )
+
+    def __init__(self, count: int):
+        super().__init__()
+        self.count = count # On passe le compte actuel pour l'afficher
+
+    async def on_submit(self, interaction: discord.Interaction):
+        
+        message_content = (
+            f"🚨**{self.titre.value.upper()}**🚨\n\n"
+            f"{interaction.user.mention} lance un live sur **{self.jeu.value}**.\n"
+            f"Viens en fumer un long, t'es le/la bienvenu(e) !\n 🚬"
+            f"_(Aucun point kanaé ne sera distribué durant ce live)_"
+            f"{self.lien.value}\n\n"
+        )
+        
+        # Message de prévisualisation
+        preview_text = (
+            f"👀 **PRÉVISUALISATION DE TON ANNONCE**\n"
+            f"*Il te reste {2 - self.count} annonce(s) possible(s) cette semaine après celle-ci.*\n"
+            f"----------------------------------\n\n"
+            f"{message_content}"
+        )
+        
+        # On envoie la prévisu avec les boutons Confirmer/Annuler
+        view = LivePreviewView(interaction.client, interaction.user, message_content)
+        await interaction.response.send_message(preview_text, view=view, ephemeral=True)            
+
 class DouilleView(discord.ui.View):
     def __init__(self, host_id: int, mise: int):
         super().__init__(timeout=60.0) # Les joueurs ont 60 secondes pour rejoindre
@@ -311,7 +403,7 @@ def setup(bot: commands.Bot):
         
         rang_mensuel = f"(Rang #{monthly_pos})" if monthly_pos else "(Aucun point ce mois-ci)"
         embed.add_field(
-            name="🥇 Kaanaé d'Or (Ce mois-ci)", 
+            name="🥇 Kanaé d'Or (Ce mois-ci)", 
             value=f"**{monthly_score} points** {rang_mensuel}", 
             inline=False
         )
@@ -331,13 +423,13 @@ def setup(bot: commands.Bot):
     @bot.tree.command(name="top", description="Affiche le classement des meilleurs fumeurs")
     @app_commands.describe(categorie="Choisis quel classement tu veux voir")
     @app_commands.choices(categorie=[
-        app_commands.Choice(name="🏆 Mensuel (Kaanaé d'Or)", value="mois"),
+        app_commands.Choice(name="🏆 Mensuel (Kanaé d'Or)", value="mois"),
         app_commands.Choice(name="🌟 À vie (Panthéon)", value="vie"),
     ])
     async def top(interaction: discord.Interaction, categorie: app_commands.Choice[str]):
         is_monthly = (categorie.value == "mois")
         table = "monthly_scores" if is_monthly else "scores"
-        header = "🏆 Classement du Mois : Kaanaé d'Or 🏆" if is_monthly else "🌟 Classement à Vie : Panthéon 🌟"
+        header = "🏆 Classement du Mois : Kanaé d'Or 🏆" if is_monthly else "🌟 Classement à Vie : Panthéon 🌟"
         
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
@@ -378,7 +470,7 @@ def setup(bot: commands.Bot):
     )
     @app_commands.choices(categorie=[
         app_commands.Choice(name="🌟 Score à vie (Global)", value="vie"),
-        app_commands.Choice(name="🏆 Score du Mois (Kaanaé d'Or)", value="mois"),
+        app_commands.Choice(name="🏆 Score du Mois (Kanaé d'Or)", value="mois"),
     ])
     async def set_points(interaction: discord.Interaction, user_id: str, nouveau_total: int, categorie: app_commands.Choice[str]):
         # Petite sécurité admin au cas où
@@ -1027,6 +1119,25 @@ def setup(bot: commands.Bot):
             await helpers.update_member_prestige_role(interaction.user, new_total)
 
         await interaction.followup.send("\n".join(report), ephemeral=True)
+    
+    # ---------------------------------------
+    # /live
+    # ---------------------------------------
+    @bot.tree.command(name="live", description="Ouvre le formulaire pour annoncer ton stream Twitch à la commu' !")
+    async def live_cmd(interaction: discord.Interaction):
+        user_id = interaction.user.id
+        
+        # 1. Vérification de la limite AVANT d'ouvrir la modale
+        count = await database.get_weekly_live_count(database.db_pool, user_id)
+        if count >= 3:
+            await interaction.response.send_message(
+                "❌ **Limite atteinte !** Tu as déjà fait 3 annonces dans les 7 derniers jours. Laisse de la place aux autres frérot 🌿.", 
+                ephemeral=True
+            )
+            return
+            
+        # 2. Si c'est bon, on envoie la modale à l'écran du joueur
+        await interaction.response.send_modal(LiveModal(count))
 
     # ---------------------------------------
     # /help-concours

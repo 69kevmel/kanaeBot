@@ -189,6 +189,16 @@ async def ensure_tables(pool):
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """
             )
+            # Table pour limiter les annonces de live (3 par semaine)
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS live_announcements (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    announce_date DATETIME NOT NULL
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                """
+            )
     logger.info("Database tables checked/created")
 
 async def get_user_points(pool, user_id):
@@ -542,3 +552,23 @@ async def sell_pokeweed(pool, user_id, pokeweed_id, points):
     # 4. On crédite les points via ta fonction existante
     await add_points(pool, user_id, points)
     return True
+
+async def get_weekly_live_count(pool, user_id):
+    """Vérifie combien de lives ont été annoncés dans les 7 derniers jours."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT COUNT(*) FROM live_announcements WHERE user_id=%s AND announce_date >= DATE_SUB(NOW(), INTERVAL 7 DAY);",
+                (int(user_id),)
+            )
+            row = await cur.fetchone()
+            return row[0] if row else 0
+
+async def add_live_announcement(pool, user_id):
+    """Enregistre une nouvelle annonce de live."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO live_announcements (user_id, announce_date) VALUES (%s, NOW());",
+                (int(user_id),)
+            )
