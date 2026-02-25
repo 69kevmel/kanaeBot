@@ -197,9 +197,9 @@ class LiveModal(discord.ui.Modal, title='Annonce ton Live Twitch !'):
     async def on_submit(self, interaction: discord.Interaction):
         
         message_content = (
-            f"🔴 **{self.titre.value.upper()}** 🚨\n\n"
+            f"🔴 **{self.titre.value.upper()}** 📣\n\n"
             f"{interaction.user.mention} lance un live sur **{self.jeu.value}**.\n"
-            f"**Viens en fumer un long, t'es le/la bienvenu(e) !\n\n 🚬**"
+            f"**Viens en fumer un long, t'es le/la bienvenu(e) 🚬!\n\n**"
             f"_(Aucun point kanaé ne sera distribué durant ce live)_\n\n"
             f"{self.lien.value}\n\n"
         )
