@@ -13,12 +13,12 @@ class WelcomeSuiteView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None) # Le bouton ne désactive jamais
 
-    @discord.ui.button(label="Ici la suite ! 🎁", style=discord.ButtonStyle.success, custom_id="welcome_suite_btn")
+    @discord.ui.button(label="Ici la suite ! 👀", style=discord.ButtonStyle.success, custom_id="welcome_suite_btn")
     async def suite_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Le texte éphémère qui explique tout
         suite_text = (
             "🤖 **Bienvenue sur Kanaé !**\n"
-            "Kanaé, c'est ton pour chiller, fumer et t'amuser avec la commu'.\n\n"
+            "Kanaé, c'est le serveur pour chiller et fumer avec la commu'.\n\n"
             "🏆 **LE KANAÉ D'OR (Le grand concours) :**\n"
             "Ici, ton activité te rapporte des points ! Parle en vocal, poste des photos de tes plus belles battes, ou joue au casino pour grimper en grade. Le but ? Devenir l'Empereur de Kanaé et rafler le Kanaé d'Or !\n\n"
             "• `/help-concours` : Guide complet des différentes façons de gagner des points 📚\n\n"
@@ -198,7 +198,7 @@ def setup(bot: commands.Bot):
                 welcome_text = (
                     f"🌿 Bienvenue dans la commu', {member.mention} 💨\n"
                     f"Installe-toi bien, roules-en un long et passe dire bonjour dans {blabla_mention} 🛋️\n"
-                    f"N'oublie pas de poser ta petite présentation dans {presente_mention} (c’est pas obligatoire, mais c’est le top pour faire connaissance avec les autres !) ✨"
+                    f" ✌️ N'oublie pas de poser ta petite présentation dans {presente_mention} (c’est pas obligatoire, mais c’est le top pour faire connaissance avec les autres !) 🍃"
                 )
 
                 # On génère la vue avec le bouton "Ici la suite !" (assure-toi que WelcomeSuiteView est bien défini en haut de ton fichier)
