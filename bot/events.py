@@ -17,7 +17,7 @@ class WelcomeSuiteView(discord.ui.View):
     async def suite_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Le texte éphémère qui explique tout
         suite_text = (
-            "🤖 **Bienvenue sur Kanaé !**\n"
+            "🍃**Bienvenue sur Kanaé !**\n"
             "Kanaé, c'est le serveur pour chiller et fumer avec la commu'.\n\n"
             "🏆 **LE KANAÉ D'OR (Le grand concours) :**\n"
             "Ici, ton activité te rapporte des points ! Parle en vocal, poste des photos de tes plus belles battes, ou joue au casino pour grimper en grade. Le but ? Devenir l'Empereur de Kanaé et rafler le Kanaé d'Or !\n\n"
