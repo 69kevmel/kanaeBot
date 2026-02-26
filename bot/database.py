@@ -572,3 +572,63 @@ async def add_live_announcement(pool, user_id):
                 "INSERT INTO live_announcements (user_id, announce_date) VALUES (%s, NOW());",
                 (int(user_id),)
             )
+
+async def get_user_pokeweeds_unique(pool, user_id):
+    """Récupère la liste des cartes uniques d'un joueur pour l'autocomplétion"""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("""
+                SELECT p.id, p.name, COUNT(*) as total 
+                FROM user_pokeweeds up 
+                JOIN pokeweeds p ON up.pokeweed_id = p.id 
+                WHERE up.user_id=%s 
+                GROUP BY p.id;
+            """, (int(user_id),))
+            return await cur.fetchall()
+
+async def get_specific_pokeweed_count(pool, user_id, pokeweed_id):
+    """Compte combien d'exemplaires d'une carte possède un joueur"""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT COUNT(*) FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s;", (int(user_id), int(pokeweed_id)))
+            row = await cur.fetchone()
+            return row[0] if row else 0
+
+async def execute_trade(pool, u1_id, p1_id, u2_id, p2_id):
+    """Transaction SQL sécurisée : Échange les 2 cartes. Renvoie True si succès, False si triche."""
+    async with pool.acquire() as conn:
+        # On démarre une transaction stricte
+        await conn.begin()
+        try:
+            async with conn.cursor() as cur:
+                # 1. On cherche la copie exacte (via sa date) du Joueur 1
+                await cur.execute("SELECT capture_date FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s LIMIT 1 FOR UPDATE;", (int(u1_id), int(p1_id)))
+                row1 = await cur.fetchone()
+                if not row1:
+                    await conn.rollback()
+                    return False
+                date1 = row1[0]
+
+                # 2. On cherche la copie exacte du Joueur 2
+                await cur.execute("SELECT capture_date FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s LIMIT 1 FOR UPDATE;", (int(u2_id), int(p2_id)))
+                row2 = await cur.fetchone()
+                if not row2:
+                    await conn.rollback()
+                    return False
+                date2 = row2[0]
+
+                # 3. On supprime les anciennes copies
+                await cur.execute("DELETE FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s AND capture_date=%s LIMIT 1;", (int(u1_id), int(p1_id), date1))
+                await cur.execute("DELETE FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s AND capture_date=%s LIMIT 1;", (int(u2_id), int(p2_id), date2))
+
+                # 4. On insère les nouvelles cartes en croisant les proprios
+                await cur.execute("INSERT INTO user_pokeweeds (user_id, pokeweed_id, capture_date) VALUES (%s, %s, NOW());", (int(u2_id), int(p1_id)))
+                await cur.execute("INSERT INTO user_pokeweeds (user_id, pokeweed_id, capture_date) VALUES (%s, %s, NOW());", (int(u1_id), int(p2_id)))
+
+            # Si on arrive ici sans erreur, on valide tout d'un coup !
+            await conn.commit()
+            return True
+        except Exception as e:
+            await conn.rollback()
+            logger.error(f"Erreur transaction échange : {e}")
+            return False

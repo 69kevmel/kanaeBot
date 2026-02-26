@@ -165,6 +165,101 @@ class LivePreviewView(discord.ui.View):
             child.disabled = True
         await interaction.response.edit_message(content="❌ **Annonce annulée.** T'as eu un coup de pression ?", view=self)
 
+class TradeOfferView(discord.ui.View):
+    def __init__(self, u1: discord.Member, u2: discord.Member, p1_id: int, p2_id: int, p1_name: str, p2_name: str):
+        super().__init__(timeout=7200) # 2 heures
+        self.u1 = u1
+        self.u2 = u2
+        self.p1_id = p1_id
+        self.p2_id = p2_id
+        self.p1_name = p1_name
+        self.p2_name = p2_name
+
+    @discord.ui.button(label="Accepter l'échange ✅", style=discord.ButtonStyle.success)
+    async def btn_accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.u2.id:
+            await interaction.response.send_message("❌ Bas les pattes, cet échange ne t'est pas adressé !", ephemeral=True)
+            return
+
+        # Sécurité anti-spam
+        if self.u1.id in _inflight_claims or self.u2.id in _inflight_claims:
+            await interaction.response.send_message("⏳ L'un de vous a déjà une transaction en cours, doucement...", ephemeral=True)
+            return
+
+        _inflight_claims.update([self.u1.id, self.u2.id])
+        try:
+            await interaction.response.defer()
+            # L'exécution ultra sécurisée de l'échange
+            success = await database.execute_trade(database.db_pool, self.u1.id, self.p1_id, self.u2.id, self.p2_id)
+            
+            for child in self.children:
+                child.disabled = True
+            
+            if success:
+                embed = interaction.message.embeds[0]
+                embed.color = discord.Color.green()
+                embed.title = "🤝 Échange terminé avec succès !"
+                await interaction.edit_original_response(embed=embed, view=self)
+                await interaction.followup.send(f"🎉 Échange réussi ! {self.u1.mention} récupère **{self.p2_name}** et {self.u2.mention} récupère **{self.p1_name}** !")
+            else:
+                await interaction.edit_original_response(content="❌ **Échange annulé.** Quelqu'un a vendu sa carte entre-temps ou un problème est survenu !", embed=None, view=self)
+        finally:
+            _inflight_claims.discard(self.u1.id)
+            _inflight_claims.discard(self.u2.id)
+
+    @discord.ui.button(label="Annuler ❌", style=discord.ButtonStyle.danger)
+    async def btn_cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id not in [self.u1.id, self.u2.id]:
+            await interaction.response.send_message("❌ Tu n'es pas dans cet échange.", ephemeral=True)
+            return
+            
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content=f"🚫 Échange annulé par {interaction.user.mention}.", embed=None, view=self)
+
+
+class TradePreviewView(discord.ui.View):
+    def __init__(self, bot, u1: discord.Member, u2: discord.Member, p1_id: int, p2_id: int, p1_name: str, p2_name: str):
+        super().__init__(timeout=120)
+        self.bot = bot
+        self.u1 = u1
+        self.u2 = u2
+        self.p1_id = p1_id
+        self.p2_id = p2_id
+        self.p1_name = p1_name
+        self.p2_name = p2_name
+
+    @discord.ui.button(label="Confirmer et Proposer ✅", style=discord.ButtonStyle.success)
+    async def btn_confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.u1.id:
+            return
+            
+        # On remplace l'embed éphémère
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="✅ Ta demande d'échange a été envoyée sur le salon !", embed=None, view=self)
+        
+        # On envoie le VRAI message de proposition sur le channel
+        channel = interaction.channel
+        embed = discord.Embed(
+            title="🔄 Proposition d'Échange Pokéweed",
+            description=f"{self.u2.mention}, tu as **2 heures** pour répondre à l'offre de {self.u1.mention} !",
+            color=discord.Color.gold()
+        )
+        embed.add_field(name=f"Ce que propose {self.u1.display_name} :", value=f"🌿 **{self.p1_name}**", inline=False)
+        embed.add_field(name="Ce qu'il veut en retour :", value=f"🌿 **{self.p2_name}**", inline=False)
+        
+        view = TradeOfferView(self.u1, self.u2, self.p1_id, self.p2_id, self.p1_name, self.p2_name)
+        await channel.send(content=self.u2.mention, embed=embed, view=view)
+
+    @discord.ui.button(label="Annuler ❌", style=discord.ButtonStyle.secondary)
+    async def btn_cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.u1.id:
+            return
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="❌ **Prévisualisation annulée.** L'échange n'a pas été proposé.", embed=None, view=self)
+
 
 class LiveModal(discord.ui.Modal, title='Annonce ton Live Twitch !'):
     titre = discord.ui.TextInput(
@@ -1499,3 +1594,82 @@ def setup(bot: commands.Bot):
     async def candidature(interaction: discord.Interaction):
         # On affiche le formulaire à l'utilisateur
         await interaction.response.send_modal(CandidatureModal())
+
+    # Fonctions d'autocomplétion pour la commande /echange
+    async def poke_autocomplete_self(interaction: discord.Interaction, current: str):
+        pokes = await database.get_user_pokeweeds_unique(database.db_pool, interaction.user.id)
+        choices = []
+        for pid, name, count in pokes:
+            if current.lower() in name.lower():
+                choices.append(app_commands.Choice(name=f"{name} (x{count})", value=str(pid)))
+        return choices[:25]
+
+    async def poke_autocomplete_other(interaction: discord.Interaction, current: str):
+        # On récupère le membre sélectionné s'il existe déjà dans l'espace de noms
+        target_id_str = getattr(interaction.namespace, 'membre', None)
+        if not target_id_str:
+            return []
+            
+        try:
+            target_id = int(target_id_str)
+            pokes = await database.get_user_pokeweeds_unique(database.db_pool, target_id)
+            choices = []
+            for pid, name, count in pokes:
+                if current.lower() in name.lower():
+                    choices.append(app_commands.Choice(name=f"{name} (x{count})", value=str(pid)))
+            return choices[:25]
+        except (ValueError, TypeError):
+            return []
+
+    # ---------------------------------------
+    # /echange
+    # ---------------------------------------
+    @bot.tree.command(name="echange", description="Propose un échange de Pokéweed à un autre membre !")
+    @app_commands.describe(
+        membre="Avec qui veux-tu échanger ?",
+        mon_pokeweed="La carte que TU donnes",
+        son_pokeweed="La carte que TU veux"
+    )
+    @app_commands.autocomplete(mon_pokeweed=poke_autocomplete_self, son_pokeweed=poke_autocomplete_other)
+    async def echange(interaction: discord.Interaction, membre: discord.Member, mon_pokeweed: str, son_pokeweed: str):
+        if membre.id == interaction.user.id or membre.bot:
+            await interaction.response.send_message("❌ Tu ne peux pas échanger avec toi-même ou avec un bot frérot.", ephemeral=True)
+            return
+
+        try:
+            p1_id = int(mon_pokeweed)
+            p2_id = int(son_pokeweed)
+        except ValueError:
+            await interaction.response.send_message("❌ Sélection invalide. Utilise les propositions de l'autocomplétion !", ephemeral=True)
+            return
+
+        # Double check serveur : Vérifier les quantités possédées à l'instant T
+        c1 = await database.get_specific_pokeweed_count(database.db_pool, interaction.user.id, p1_id)
+        c2 = await database.get_specific_pokeweed_count(database.db_pool, membre.id, p2_id)
+
+        if c1 == 0:
+            await interaction.response.send_message("❌ Tu ne possèdes plus cette carte !", ephemeral=True)
+            return
+        if c2 == 0:
+            await interaction.response.send_message(f"❌ {membre.display_name} ne possède plus cette carte !", ephemeral=True)
+            return
+
+        # Récupération des noms pour l'affichage (via la base de données)
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT name FROM pokeweeds WHERE id=%s;", (p1_id,))
+                p1_name = (await cur.fetchone())[0]
+                await cur.execute("SELECT name FROM pokeweeds WHERE id=%s;", (p2_id,))
+                p2_name = (await cur.fetchone())[0]
+
+        # PRÉVISUALISATION (Message Éphémère)
+        embed = discord.Embed(
+            title="👀 Prévisualisation de l'échange",
+            description="Vérifie bien les détails avant d'envoyer ta proposition sur le salon.",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="Tu donnes :", value=f"🌿 **{p1_name}**\n*(Il t'en restera {c1 - 1})*", inline=False)
+        embed.add_field(name="Tu reçois :", value=f"🌿 **{p2_name}**\n*(Lui en restera {c2 - 1})*", inline=False)
+        
+        view = TradePreviewView(interaction.client, interaction.user, membre, p1_id, p2_id, p1_name, p2_name)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
