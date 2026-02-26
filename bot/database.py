@@ -574,11 +574,12 @@ async def add_live_announcement(pool, user_id):
             )
 
 async def get_user_pokeweeds_unique(pool, user_id):
-    """Récupère la liste des cartes uniques d'un joueur pour l'autocomplétion"""
+    """Récupère la liste des cartes uniques d'un joueur avec la rareté pour l'autocomplétion"""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
+            # On ajoute p.rarity ici !
             await cur.execute("""
-                SELECT p.id, p.name, COUNT(*) as total 
+                SELECT p.id, p.name, p.rarity, COUNT(*) as total 
                 FROM user_pokeweeds up 
                 JOIN pokeweeds p ON up.pokeweed_id = p.id 
                 WHERE up.user_id=%s 
