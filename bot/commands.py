@@ -196,11 +196,21 @@ class TradeOfferView(discord.ui.View):
                 child.disabled = True
             
             if success:
+                # 1. On grise les boutons et on met à jour le message d'offre
                 embed = interaction.message.embeds[0]
                 embed.color = discord.Color.green()
                 embed.title = "🤝 Échange terminé avec succès !"
                 await interaction.edit_original_response(embed=embed, view=self)
-                await interaction.followup.send(f"🎉 Échange réussi ! {self.u1.mention} récupère **{self.p2_name}** et {self.u2.mention} récupère **{self.p1_name}** !")
+                
+                # 2. On envoie l'annonce officielle DIRECTEMENT dans le salon Pokéweed
+                pokeweed_channel = interaction.client.get_channel(config.CHANNEL_POKEWEED_ID)
+                success_msg = f"🎉 **Échange réussi !** {self.u1.mention} récupère **{self.p2_name}** et {self.u2.mention} récupère **{self.p1_name}** ! 🤝🌿"
+                
+                if pokeweed_channel:
+                    await pokeweed_channel.send(success_msg)
+                else:
+                    # Petite sécurité si jamais le salon bug
+                    await interaction.followup.send(success_msg)
             else:
                 await interaction.edit_original_response(content="❌ **Échange annulé.** Quelqu'un a vendu sa carte entre-temps ou un problème est survenu !", embed=None, view=self)
         finally:

@@ -129,22 +129,50 @@ async def update_voice_points(bot: discord.Client):
                     # 🌿 On passe à 15 points toutes les 30 min !
                     state.voice_times[user_id] -= 1800
 
+class NewsApprovalView(discord.ui.View):
+    def __init__(self, news_content: str):
+        super().__init__(timeout=None)
+        self.news_content = news_content
+
+    @discord.ui.button(label="Publier ✅", style=discord.ButtonStyle.success)
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # On récupère le salon public des news
+        channel = interaction.client.get_channel(config.NEWS_CHANNEL_ID)
+        if channel:
+            # On envoie la news aux joueurs
+            await channel.send(self.news_content)
+            
+            # On désactive les boutons et on met à jour le message staff
+            for child in self.children:
+                child.disabled = True
+            await interaction.response.edit_message(content=f"✅ **Validé et publié par {interaction.user.mention}**\n\n{self.news_content}", view=self)
+        else:
+            await interaction.response.send_message("❌ Impossible de trouver le salon public des news. Vérifie NEWS_CHANNEL_ID.", ephemeral=True)
+
+    @discord.ui.button(label="Rejeter ❌", style=discord.ButtonStyle.danger)
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # On désactive les boutons et on marque la news comme rejetée
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content=f"❌ **Rejeté par {interaction.user.mention}**\n\n{self.news_content}", view=self)
+
 @tasks.loop(hours=2)
 async def fetch_and_send_news(bot: discord.Client):
-    logger.info("🚀 Tâche fetch_and_send_news démarrée (cycle de 2 heures)")  # AJOUT ICI
+    logger.info("🚀 Tâche fetch_and_send_news démarrée (cycle de 2 heures)")
     await bot.wait_until_ready()
 
     while database.db_pool is None:
         await asyncio.sleep(1)
 
-    channel = bot.get_channel(config.NEWS_CHANNEL_ID)
-    if not channel:
-        logger.warning("❗ Canal de news introuvable.")
+    # 🛑 ON CIBLE MAINTENANT LE SALON STAFF 🛑
+    review_channel = bot.get_channel(config.STAFF_NEWS_REVIEW_CHANNEL_ID)
+    if not review_channel:
+        logger.warning("❗ Canal de review staff introuvable.")
         return
 
     logger.info("🔍 Récupération des flux RSS...")
     today = date.today()
-    socket.setdefaulttimeout(10)  # Timeout global pour les flux
+    socket.setdefaulttimeout(10)
 
     all_entries = []
 
@@ -190,19 +218,22 @@ async def fetch_and_send_news(bot: discord.Client):
             entry.published_parsed.tm_mday
         )
 
-        message = (
+        message_content = (
             f"🌿 **Nouvelles fraîches de la journée !** 🌿\n"
             f"**{title}**\n"
             f"{link}\n\n"
             f"🗓️ Publié le : {published_date}"
         )
 
-        await channel.send(message)
+        # 🛑 ENVOI AU STAFF AVEC LES BOUTONS DE VALIDATION 🛑
+        view = NewsApprovalView(message_content)
+        await review_channel.send(f"📰 **NOUVELLE NEWS À VALIDER** 📰\n\n{message_content}", view=view)
+        
+        # On marque la news comme "traitée" dans la DB pour éviter qu'elle ne revienne à la prochaine boucle (qu'elle soit acceptée ou refusée)
         await database.mark_news_sent(database.db_pool, link, today)
-        await asyncio.sleep(2)  # anti-spam pour Discord
+        await asyncio.sleep(2)
 
-    logger.info("✅ %d news postées", len(all_entries))
-logger.info("🌀 Tâche fetch_and_send_news terminée.")
+    logger.info("✅ %d news envoyées en validation staff", len(all_entries))
 
 
 async def spawn_pokeweed_loop(bot: discord.Client):
