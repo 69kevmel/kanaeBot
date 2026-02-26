@@ -1605,21 +1605,41 @@ def setup(bot: commands.Bot):
         return choices[:25]
 
     async def poke_autocomplete_other(interaction: discord.Interaction, current: str):
-        # On récupère le membre sélectionné s'il existe déjà dans l'espace de noms
-        target_id_str = getattr(interaction.namespace, 'membre', None)
-        if not target_id_str:
-            return []
+        # On récupère ce que le joueur a mis dans le champ "membre"
+        target = interaction.namespace.membre
+        
+        # 1. S'il n'a pas encore rempli le champ "membre", on le prévient !
+        if not target:
+            return [app_commands.Choice(name="⚠️ Sélectionne d'abord le membre !", value="error")]
             
         try:
-            target_id = int(target_id_str)
+            # 2. Sécurité : Selon la version de discord.py, target peut être un objet, un int ou un str
+            target_id = getattr(target, 'id', None)
+            if target_id is None:
+                target_id = int(target)
+                
+            # 3. On va chercher les cartes du membre ciblé
             pokes = await database.get_user_pokeweeds_unique(database.db_pool, target_id)
+            
+            # S'il est à sec (aucune carte)
+            if not pokes:
+                return [app_commands.Choice(name="❌ Ce joueur n'a aucun Pokéweed...", value="error")]
+                
+            # 4. On filtre selon ce que tu tapes
             choices = []
             for pid, name, count in pokes:
                 if current.lower() in name.lower():
                     choices.append(app_commands.Choice(name=f"{name} (x{count})", value=str(pid)))
+            
+            # S'il a des cartes mais que ta recherche ne correspond à rien
+            if not choices:
+                return [app_commands.Choice(name="❌ Il n'a pas cette carte...", value="error")]
+                
             return choices[:25]
-        except (ValueError, TypeError):
-            return []
+            
+        except Exception as e:
+            logger.error(f"Erreur Autocomplete Echange : {e}")
+            return [app_commands.Choice(name="❌ Erreur de recherche", value="error")]
 
     # ---------------------------------------
     # /echange
