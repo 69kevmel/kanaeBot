@@ -98,6 +98,7 @@ async def update_member_prestige_role(member: discord.Member, points: int):
     # 3. Déterminer s'il s'agit d'une promotion ou d'une rétrogradation
     is_promotion = True
     old_role_name = "Inconnu"
+    old_role = None
     
     if current_prestige_roles:
         # On crée un dictionnaire inverse {role_id: points} pour comparer les paliers
@@ -128,11 +129,8 @@ async def update_member_prestige_role(member: discord.Member, points: int):
         # 5. Gestion des annonces (Public / MP)
         public_channel = member.guild.get_channel(config.BLABLA_CHANNEL_ID)
         
-        # 5. Gestion des annonces (Public / MP)
-        public_channel = member.guild.get_channel(config.BLABLA_CHANNEL_ID)
-        
         if is_promotion:
-            # --- VÉRIFICATION ANTI-SPAM (A-t-il DÉJÀ eu ce rôle avant ?) ---
+            # --- VÉRIFICATION ANTI-SPAM MONTÉE ---
             already_unlocked = False
             async with database.db_pool.acquire() as conn:
                 async with conn.cursor() as cur:
@@ -143,7 +141,7 @@ async def update_member_prestige_role(member: discord.Member, points: int):
                         await cur.execute("INSERT INTO prestige_unlocks (user_id, role_id) VALUES (%s, %s);", (member.id, target_role_id))
             
             if not already_unlocked:
-                # --- VRAIE PROMOTION (1ère fois) : MP + Grosse Annonce ---
+                # 1ère fois qu'il atteint ce rôle : Grosse Annonce + MP
                 msg_dm = f"✨ **FÉLICITATIONS FRÉROT !** ✨\n\nTu as franchi un cap avec **{points} points** ! Tu es maintenant : **{target_role.name}** 👑\nContinue comme ça, la légende est en marche ! 🌿🔥"
                 await safe_send_dm(member, msg_dm)
                 
@@ -153,21 +151,30 @@ async def update_member_prestige_role(member: discord.Member, points: int):
                         f"Félicitations à {member.mention} qui grimpe en grade et devient officiellement : {target_role.mention} 👑\n"
                     )
                     await public_channel.send(announcement)
-            else:
-                # --- RE-PROMOTION (Il remonte après une perte) : Message discret, 0 MP ---
-                if public_channel:
-                    await public_channel.send(f"📈 {member.mention} a repris du poil de la bête et récupère son grade de {target_role.mention} ! 💪")
         
         else:
-            # --- RÉTROGRADATION : Pas de MP + Message Triste ---
-            if public_channel:
-                import random
-                sad_messages = [
-                    f"📉 **COUP DUR...** {member.mention} vient de perdre son rang de **{old_role_name}** et redescend au rang de {target_role.mention}. La roue tourne, courage frérot... 🕯️🌿",
-                    f"Aïe... {member.mention} a trop joué avec le feu. Il n'est plus **{old_role_name}** et redevient simple {target_role.mention}. On t'envoie de la force ! 📉💨",
-                    f"La descente est brutale pour {member.mention}. Adieu le grade **{old_role_name}**, retour au rang de {target_role.mention}. On remonte la pente bientôt ? 📉🕯️"
-                ]
-                await public_channel.send(random.choice(sad_messages))
+            # --- VÉRIFICATION ANTI-SPAM DESCENTE ---
+            already_demoted = False
+            if old_role:
+                async with database.db_pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        # On enregistre l'ID du rôle qu'il vient de PERDRE (old_role.id)
+                        await cur.execute("SELECT 1 FROM prestige_demotions WHERE user_id=%s AND role_id=%s;", (member.id, old_role.id))
+                        if await cur.fetchone():
+                            already_demoted = True
+                        else:
+                            await cur.execute("INSERT INTO prestige_demotions (user_id, role_id) VALUES (%s, %s);", (member.id, old_role.id))
+
+            if not already_demoted:
+                # 1ère fois qu'il perd ce rôle spécifique : Message triste
+                if public_channel:
+                    import random
+                    sad_messages = [
+                        f"📉 **COUP DUR...** {member.mention} vient de perdre son rang de **{old_role_name}** et redescend au rang de {target_role.mention}. La roue tourne, courage frérot... 🕯️🌿",
+                        f"Aïe... {member.mention} a trop joué avec le feu. Il n'est plus **{old_role_name}** et redevient simple {target_role.mention}. On t'envoie de la force ! 📉💨",
+                        f"La descente est brutale pour {member.mention}. Adieu le grade **{old_role_name}**, retour au rang de {target_role.mention}. On remonte la pente bientôt ? 📉🕯️"
+                    ]
+                    await public_channel.send(random.choice(sad_messages))
 
     except discord.Forbidden:
         logger.error(f"⛔ [Prestige] Discord me refuse l'accès aux rôles de {member.display_name} (est-il propriétaire ou admin plus haut que moi ?).")
