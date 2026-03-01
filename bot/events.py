@@ -140,11 +140,14 @@ def setup(bot: commands.Bot):
 
     @bot.event
     async def on_member_update(before: discord.Member, after: discord.Member):
-        # Vérifie si le rôle Nitro Booster a été ajouté
+        # --- 1. QUAND UN MEMBRE BOOST LE SERVEUR ---
         if not before.premium_since and after.premium_since:
             try:
-                # 🎁 On donne les 1000 points direct !
-                await database.add_points(database.db_pool, str(after.id), 1000)
+                # 🎁 On donne les 1000 points direct ET on récupère le nouveau total !
+                new_total = await database.add_points(database.db_pool, str(after.id), 1000)
+                
+                # 👑 On vérifie s'il monte en grade grâce au boost !
+                await helpers.update_member_prestige_role(after, new_total)
                 
                 channel = after.guild.get_channel(config.BLABLA_CHANNEL_ID)
                 if channel:
@@ -155,6 +158,35 @@ def setup(bot: commands.Bot):
                     )
             except Exception as e:
                 logger.warning("❌ Erreur lors du message de boost : %s", e)
+                
+        # --- 2. QUAND LE BOOST D'UN MEMBRE EXPIRE ---
+        elif before.premium_since and not after.premium_since:
+            # Étape A : Le DM Privé
+            try:
+                msg_dm = (
+                    "💔 **Ton boost Kanaé vient d'expirer !**\n\n"
+                    "Déjà, un énorme **MERCI** pour ton soutien jusqu'ici, c'est grâce à des mecs comme toi que Kanaé tourne bien ! 🌿\n\n"
+                    "🛡️ **Le tag [KNAÉ] a besoin de toi !**\n"
+                    "Si tu as encore la possibilité de nous soutenir, n'hésite pas à remettre ton boost. Ça nous aide énormément à garder le tag actif pour tout le monde !\n\n"
+                    "🎁 *(Et n'oublie pas : chaque nouveau boost te rapporte instantanément **+1000 points** sur ton Score Kanaé !)*\n\n"
+                    "Quoi qu'il arrive, reste chill et bonne fumette ! 💨"
+                )
+                await helpers.safe_send_dm(after, msg_dm)
+                logger.info(f"DM de fin de boost envoyé à {after.name}")
+            except Exception as e:
+                logger.warning("❌ Erreur lors de l'envoi du DM de fin de boost à %s : %s", after.name, e)
+                
+            # Étape B : L'annonce triste dans le Casino
+            try:
+                casino_channel = after.guild.get_channel(1477651520878280914)
+                if casino_channel:
+                    await casino_channel.send(
+                        f"📉 **COUP DUR POUR LE SERVEUR...**\n"
+                        f"Le boost de {after.mention} vient d'expirer ! 💔\n"
+                        f"Merci beaucoup pour ton aide précieuse frérot, on espère que tu reviendras parmi les **Pilliers du cercle** ! 🌿🛡️"
+                    )
+            except Exception as e:
+                logger.warning("❌ Erreur lors de l'annonce publique de fin de boost : %s", e)
     
         
     @bot.event

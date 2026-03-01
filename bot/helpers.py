@@ -166,15 +166,18 @@ async def update_member_prestige_role(member: discord.Member, points: int):
                             await cur.execute("INSERT INTO prestige_demotions (user_id, role_id) VALUES (%s, %s);", (member.id, old_role.id))
 
             if not already_demoted:
-                # 1ère fois qu'il perd ce rôle spécifique : Message triste
-                if public_channel:
+                # 1ère fois qu'il perd ce rôle : Message triste envoyé DANS LE CASINO !
+                # (1477651520878280914 est l'ID de ton salon casino)
+                casino_channel = member.guild.get_channel(1477651520878280914) 
+                
+                if casino_channel:
                     import random
                     sad_messages = [
                         f"📉 **COUP DUR...** {member.mention} vient de perdre son rang de **{old_role_name}** et redescend au rang de {target_role.mention}. La roue tourne, courage frérot... 🕯️🌿",
                         f"Aïe... {member.mention} a trop joué avec le feu. Il n'est plus **{old_role_name}** et redevient simple {target_role.mention}. On t'envoie de la force ! 📉💨",
                         f"La descente est brutale pour {member.mention}. Adieu le grade **{old_role_name}**, retour au rang de {target_role.mention}. On remonte la pente bientôt ? 📉🕯️"
                     ]
-                    await public_channel.send(random.choice(sad_messages))
+                    await casino_channel.send(random.choice(sad_messages))
 
     except discord.Forbidden:
         logger.error(f"⛔ [Prestige] Discord me refuse l'accès aux rôles de {member.display_name} (est-il propriétaire ou admin plus haut que moi ?).")
