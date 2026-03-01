@@ -1390,7 +1390,7 @@ def setup(bot: commands.Bot):
             logger.error("❌ Salon Casino introuvable !")
             return
 
-        if roll <= 48:
+        if roll <= 42:
             # 🎉 GAGNÉ (48% de chance : 1 à 48)
             new_total = await database.add_points(database.db_pool, user_id, mise)
             await helpers.update_member_prestige_role(interaction.user, new_total)
