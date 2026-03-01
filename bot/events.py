@@ -274,17 +274,59 @@ def setup(bot: commands.Bot):
 
     @bot.event
     async def on_member_remove(member: discord.Member):
+        # --- 1. ENVOI DU LOG DANS LE SALON MODÉRATEUR ---
         try:
-            view = LeaveSurveyView(bot)
-            content = (
-                f"😢 {member.name}, on est vraiment triste que tu partes...\n"
-                "Est-ce que tu pourrais nous aider à améliorer le serveur en "
-                "cliquant simplement sur un des boutons ci-dessous ?"
-            )
-            await member.send(content=content, view=view)
-            logger.info("Leave survey sent to %s", member.name)
+            mod_channel = bot.get_channel(config.MOD_LOG_CHANNEL_ID)
+            if mod_channel:
+                # 📊 Récupération de TOUTES les stats en base de données
+                pts_vie = await database.get_user_points(database.db_pool, member.id)
+                pts_mois = await database.get_user_monthly_points(database.db_pool, member.id)
+                pokes = await database.get_user_pokeweeds_unique(database.db_pool, member.id)
+                
+                # Calcul du nombre total de Pokéweeds qu'il abandonne (l'index 3 correspond au "count")
+                total_pokes = sum(p[3] for p in pokes) if pokes else 0
+
+                # ⏳ Calcul du temps passé (Discord Timestamp magique)
+                joined_at = int(member.joined_at.timestamp()) if member.joined_at else 0
+                
+                # 🎭 Détection de sa Team
+                team = "Sans camp fixe 🤷‍♂️"
+                if any(r.id == config.WEED_ROLE_ID for r in member.roles):
+                    team = "Team Weed 🥦"
+                elif any(r.id == config.SHIT_ROLE_ID for r in member.roles):
+                    team = "Team Shit 🍫"
+
+                # 📝 Petite note marrante en fonction de son activité
+                if pts_vie == 0:
+                    note = "Un vrai fantôme 👻. Il n'a même pas tiré une taffe avant de partir."
+                elif pts_vie > 15000:
+                    note = "Un PUTAIN de pilier nous quitte 🫡. On fumera le prochain en son honneur."
+                elif total_pokes > 10:
+                    note = "Le mec s'est barré en laissant toutes ses cartes Pokéweed à l'abandon... Triste."
+                else:
+                    note = "Il a fumé sa part en scred, puis il s'est taillé la route 🚶‍♂️💨."
+
+                # 🎨 Création de l'Embed
+                embed = discord.Embed(
+                    title="💨 Un fumeur a écrasé son joint...",
+                    description=f"**{member.name}** ({member.mention}) a déserté le cercle Kanaé.",
+                    color=discord.Color.dark_red()
+                )
+                
+                # Les infos stylées
+                embed.add_field(name="📅 Arrivé sur le serveur", value=f"<t:{joined_at}:f>\n*(soit <t:{joined_at}:R>)*", inline=False)
+                embed.add_field(name="🌟 Score à vie", value=f"**{pts_vie} pts**", inline=True)
+                embed.add_field(name="🏆 Score du mois", value=f"**{pts_mois} pts**", inline=True)
+                embed.add_field(name="🎭 Camp", value=team, inline=True)
+                embed.add_field(name="🌿 Inventaire Pokéweed", value=f"Abandonne **{total_pokes}** cartes derrière lui.", inline=False)
+                embed.add_field(name="📝 Bilan", value=f"*{note}*", inline=False)
+
+                embed.set_thumbnail(url=member.display_avatar.url)
+                embed.set_footer(text=f"ID Joueur : {member.id}")
+
+                await mod_channel.send(embed=embed)
         except Exception as e:
-            logger.warning("Failed to send leave survey: %s", e)
+            logger.warning("Erreur lors de l'envoi du log de départ : %s", e)
 
     @bot.event
     async def on_message(message: discord.Message):
