@@ -468,6 +468,7 @@ def setup(bot: commands.Bot):
     async def score_cmd(interaction: discord.Interaction, membre: discord.Member = None):
         target = membre if membre else interaction.user
         user_id = str(target.id)
+        await interaction.response.defer(ephemeral=True)
 
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
@@ -520,7 +521,7 @@ def setup(bot: commands.Bot):
             inline=False
         )
         
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ---------------------------------------
     # /top (Mois et À vie)
