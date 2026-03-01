@@ -1486,15 +1486,21 @@ def setup(bot: commands.Bot):
         )
         await interaction.response.send_message(embed=embed, view=view)
         
-        # On attend 60 secondes OU que 6 joueurs soient là
-        await view.wait()
-        
+        # 1. On récupère le message TOUT DE SUITE (avant que ça plante)
         original_msg = await interaction.original_response()
         
-        # On désactive le bouton une fois la partie lancée
+        # 2. On attend 60 secondes OU que 6 joueurs soient là
+        await view.wait()
+        
+        # 3. On désactive le bouton une fois la partie lancée
         for child in view.children:
             child.disabled = True
-        await original_msg.edit(view=view)
+            
+        # 4. On essaie de modifier le message avec une sécurité
+        try:
+            await original_msg.edit(view=view)
+        except discord.NotFound:
+            pass # Si quelqu'un a supprimé le message, on s'en fout, on continue !
         
         if len(view.players) < 2:
             await interaction.followup.send("❌ Pas assez de couilles sur le serveur... La partie est annulée (il faut au moins 2 joueurs) !", ephemeral=False)
