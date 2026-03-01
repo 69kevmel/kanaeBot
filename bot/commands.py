@@ -14,6 +14,59 @@ from datetime import datetime, timedelta, timezone, date
 
 logger = logging.getLogger(__name__)
 
+
+async def get_valid_twitch_headers():
+    if not config.TWITCH_API_TOKEN or not config.TWITCH_REFRESH_TOKEN:
+        return None
+        
+    async with aiohttp.ClientSession() as session:
+        # 1. On teste si le token actuel est valide
+        validate_url = "https://id.twitch.tv/oauth2/validate"
+        headers_test = {"Authorization": f"OAuth {config.TWITCH_API_TOKEN}"}
+        
+        async with session.get(validate_url, headers=headers_test) as resp:
+            if resp.status == 401: # ❌ Expiré !
+                logger.info("🔄 Token Twitch expiré ! Rafraîchissement automatique en cours...")
+                
+                token_url = "https://id.twitch.tv/oauth2/token"
+                data = {
+                    "client_id": config.TWITCH_CLIENT_ID,
+                    "client_secret": config.TWITCH_CLIENT_SECRET,
+                    "grant_type": "refresh_token",
+                    "refresh_token": config.TWITCH_REFRESH_TOKEN
+                }
+                
+                async with session.post(token_url, data=data) as refresh_resp:
+                    if refresh_resp.status == 200:
+                        js = await refresh_resp.json()
+                        config.TWITCH_API_TOKEN = js["access_token"]
+                        config.TWITCH_REFRESH_TOKEN = js["refresh_token"]
+                        
+                        # On met à jour le fichier .env en dur pour sauvegarder
+                        try:
+                            with open(".env", "r") as f:
+                                lines = f.readlines()
+                            with open(".env", "w") as f:
+                                for line in lines:
+                                    if line.startswith("TWITCH_API_TOKEN="):
+                                        f.write(f"TWITCH_API_TOKEN={config.TWITCH_API_TOKEN}\n")
+                                    elif line.startswith("TWITCH_REFRESH_TOKEN="):
+                                        f.write(f"TWITCH_REFRESH_TOKEN={config.TWITCH_REFRESH_TOKEN}\n")
+                                    else:
+                                        f.write(line)
+                            logger.info("✅ Nouveau token Twitch généré et sauvegardé !")
+                        except Exception as e:
+                            logger.error(f"❌ Erreur d'écriture du .env : {e}")
+                    else:
+                        logger.error("❌ Echec critique du rafraichissement Twitch.")
+                        return None
+
+    # On retourne les bons headers prêts à l'emploi
+    return {
+        "Client-ID": config.TWITCH_CLIENT_ID,
+        "Authorization": f"Bearer {config.TWITCH_API_TOKEN}"
+    }
+
 # -----------------------
 # Utils / format helpers
 # -----------------------
@@ -1025,16 +1078,12 @@ def setup(bot: commands.Bot):
             await interaction.followup.send("❌ Impossible de lier la chaîne officielle.", ephemeral=True)
             return
 
-        # --- Récupération du token dynamique ---
-        token = config.TWITCH_API_TOKEN
-        if not token:
-            await interaction.followup.send("❌ Erreur de connexion à Twitch.", ephemeral=True)
+        # --- Récupération des headers avec Auto-Refresh ---
+        headers = await get_valid_twitch_headers()
+        if not headers:
+            await interaction.followup.send("❌ Erreur de connexion avec Twitch. Le bot doit être reconfiguré.", ephemeral=True)
             return
-
-        headers = {
-            "Client-ID": config.TWITCH_CLIENT_ID,
-            "Authorization": f"Bearer {token}" # 👈 On utilise le token frais
-        }
+        
         # --- Vérifie que le compte existe ---
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -1143,15 +1192,11 @@ def setup(bot: commands.Bot):
             await interaction.followup.send("❌ Aucun compte Twitch lié.", ephemeral=True)
             return
 
-        token = config.TWITCH_API_TOKEN
-        if not token:
+        # --- Récupération des headers avec Auto-Refresh ---
+        headers = await get_valid_twitch_headers()
+        if not headers:
             await interaction.followup.send("❌ Impossible de contacter Twitch.", ephemeral=True)
             return
-
-        headers = {
-            "Client-ID": config.TWITCH_CLIENT_ID,
-            "Authorization": f"Bearer {token}"
-        }
 
         # --- Récupère user_id Twitch ---
         async with aiohttp.ClientSession() as session:
