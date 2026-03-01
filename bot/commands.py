@@ -1401,8 +1401,13 @@ def setup(bot: commands.Bot):
         user_id = str(interaction.user.id)
 
         # 1. Sécurité : Vérifier le montant
-        if mise <= 0:
-            await interaction.response.send_message("❌ Frérot, tu dois parier un montant positif (au moins 1 point).", ephemeral=True)
+        if mise <= 10:
+            await interaction.response.send_message("❌ Frérot, tu dois parier un montant positif (au moins 10 point).", ephemeral=True)
+            return
+
+        # --- 🛑 NOUVELLE SÉCURITÉ : VÉRIFICATION DU MAXIMUM ---
+        if mise > 2000:
+            await interaction.response.send_message("❌ Doucement le fou ! La mise maximale au casino est de **2000 points** par partie.", ephemeral=True)
             return
 
         # 2. Sécurité : Vérifier si l'utilisateur a assez de points (mois + vie)
