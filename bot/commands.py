@@ -1496,12 +1496,17 @@ def setup(bot: commands.Bot):
         for child in view.children:
             child.disabled = True
             
-        # 4. On essaie de modifier le message avec une sécurité
+        # 4. ON ENLÈVE LE CHRONO ET ON ANNONCE LE TIRAGE
+        embed_final = original_msg.embeds[0]
+        mentions = " ".join([f"<@{pid}>" for pid in view.players])
+        embed_final.description = f"**Mise :** {mise} points\n**Joueurs ({len(view.players)}/6) :**\n{mentions}\n\n*Le temps est écoulé... Le barillet tourne ! 💥*"
+            
+        # 5. On essaie de modifier le message avec une sécurité
         try:
-            await original_msg.edit(view=view)
+            await original_msg.edit(embed=embed_final, view=view)
         except discord.NotFound:
-            pass # Si quelqu'un a supprimé le message, on s'en fout, on continue !
-        
+            pass
+
         if len(view.players) < 2:
             await interaction.followup.send("❌ Pas assez de couilles sur le serveur... La partie est annulée (il faut au moins 2 joueurs) !", ephemeral=False)
             return
