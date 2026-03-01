@@ -10,7 +10,7 @@ import re
 import random
 
 from . import config, database, helpers, state
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, time, timedelta, timezone, date
 
 logger = logging.getLogger(__name__)
 
@@ -322,10 +322,11 @@ class LiveModal(discord.ui.Modal, title='Annonce ton Live Twitch !'):
         await interaction.response.send_message(preview_text, view=view, ephemeral=True)            
 
 class DouilleView(discord.ui.View):
-    def __init__(self, host_id: int, mise: int):
+    def __init__(self, host_id: int, mise: int, end_time: int):
         super().__init__(timeout=60.0) # Les joueurs ont 60 secondes pour rejoindre
         self.host_id = host_id
         self.mise = mise
+        self.end_time = end_time # On le sauvegarde
         self.players = {host_id} # Le créateur est automatiquement dedans
         
     @discord.ui.button(label="Rejoindre la partie 🔫", style=discord.ButtonStyle.danger, custom_id="join_douille")
@@ -355,10 +356,10 @@ class DouilleView(discord.ui.View):
         self.players.add(user_id)
         await interaction.response.send_message(f"✅ Tu as rejoint la partie pour {self.mise} points !", ephemeral=True)
         
-        # On met à jour le message public avec les nouveaux joueurs
+        # On met à jour le message public avec les nouveaux joueurs et LE COMPTE À REBOURS
         mentions = " ".join([f"<@{pid}>" for pid in self.players])
         embed = interaction.message.embeds[0]
-        embed.description = f"**Mise :** {self.mise} points\n**Joueurs ({len(self.players)}/6) :**\n{mentions}\n\n*Cliquez sur le bouton pour rejoindre ! Le barillet tourne dans quelques secondes.*"
+        embed.description = f"**Mise :** {self.mise} points\n**Joueurs ({len(self.players)}/6) :**\n{mentions}\n\n*Cliquez sur le bouton pour rejoindre ! Le coup part <t:{self.end_time}:R>.*"
         await interaction.message.edit(embed=embed)
         
         # Si on atteint 6 joueurs, on lance la partie direct sans attendre la fin du chrono
@@ -1474,10 +1475,13 @@ def setup(bot: commands.Bot):
             )
             return
             
-        view = DouilleView(interaction.user.id, mise)
+        end_time = int(time.time() + 60)
+        
+        view = DouilleView(interaction.user.id, mise, end_time) 
+        
         embed = discord.Embed(
             title="🔫 LA DOUILLE (Roulette Russe)",
-            description=f"**Mise :** {mise} points\n**Joueurs (1/6) :**\n{interaction.user.mention}\n\n*Cliquez sur le bouton pour rejoindre ! Le coup part dans 60 secondes.*",
+            description=f"**Mise :** {mise} points\n**Joueurs (1/6) :**\n{interaction.user.mention}\n\n*Cliquez sur le bouton pour rejoindre ! Le coup part <t:{end_time}:R>.*",
             color=discord.Color.dark_theme()
         )
         await interaction.response.send_message(embed=embed, view=view)
