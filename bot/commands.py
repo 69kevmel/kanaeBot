@@ -1401,7 +1401,7 @@ def setup(bot: commands.Bot):
         user_id = str(interaction.user.id)
 
         # 1. Sécurité : Vérifier le montant
-        if mise <= 10:
+        if mise <= 9:
             await interaction.response.send_message("❌ Frérot, tu dois parier un montant positif (au moins 10 point).", ephemeral=True)
             return
 

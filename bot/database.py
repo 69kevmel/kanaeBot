@@ -199,6 +199,15 @@ async def ensure_tables(pool):
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """
             )
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS prestige_unlocks (
+                    user_id BIGINT,
+                    role_id BIGINT,
+                    PRIMARY KEY(user_id, role_id)
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                """
+            )
     logger.info("Database tables checked/created")
 
 async def get_user_points(pool, user_id):

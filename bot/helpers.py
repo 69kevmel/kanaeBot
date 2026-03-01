@@ -128,18 +128,35 @@ async def update_member_prestige_role(member: discord.Member, points: int):
         # 5. Gestion des annonces (Public / MP)
         public_channel = member.guild.get_channel(config.BLABLA_CHANNEL_ID)
         
+        # 5. Gestion des annonces (Public / MP)
+        public_channel = member.guild.get_channel(config.BLABLA_CHANNEL_ID)
+        
         if is_promotion:
-            # --- PROMOTION : MP + Message Joyeux ---
-            # Dans le MP, on garde .name car les pings de rôles ne marchent pas en privé
-            msg_dm = f"✨ **FÉLICITATIONS FRÉROT !** ✨\n\nTu as franchi un cap avec **{points} points** ! Tu es maintenant : **{target_role.name}** 👑\nContinue comme ça, la légende est en marche ! 🌿🔥"
-            await safe_send_dm(member, msg_dm)
+            # --- VÉRIFICATION ANTI-SPAM (A-t-il DÉJÀ eu ce rôle avant ?) ---
+            already_unlocked = False
+            async with database.db_pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute("SELECT 1 FROM prestige_unlocks WHERE user_id=%s AND role_id=%s;", (member.id, target_role_id))
+                    if await cur.fetchone():
+                        already_unlocked = True
+                    else:
+                        await cur.execute("INSERT INTO prestige_unlocks (user_id, role_id) VALUES (%s, %s);", (member.id, target_role_id))
             
-            if public_channel:
-                announcement = (
-                    f"🎉 **ALERTE PRESTIGE !** 🎉\n\n"
-                    f"Félicitations à {member.mention} qui grimpe en grade et devient officiellement : {target_role.mention} 👑\n"
-                )
-                await public_channel.send(announcement)
+            if not already_unlocked:
+                # --- VRAIE PROMOTION (1ère fois) : MP + Grosse Annonce ---
+                msg_dm = f"✨ **FÉLICITATIONS FRÉROT !** ✨\n\nTu as franchi un cap avec **{points} points** ! Tu es maintenant : **{target_role.name}** 👑\nContinue comme ça, la légende est en marche ! 🌿🔥"
+                await safe_send_dm(member, msg_dm)
+                
+                if public_channel:
+                    announcement = (
+                        f"🎉 **ALERTE PRESTIGE !** 🎉\n\n"
+                        f"Félicitations à {member.mention} qui grimpe en grade et devient officiellement : {target_role.mention} 👑\n"
+                    )
+                    await public_channel.send(announcement)
+            else:
+                # --- RE-PROMOTION (Il remonte après une perte) : Message discret, 0 MP ---
+                if public_channel:
+                    await public_channel.send(f"📈 {member.mention} a repris du poil de la bête et récupère son grade de {target_role.mention} ! 💪")
         
         else:
             # --- RÉTROGRADATION : Pas de MP + Message Triste ---
