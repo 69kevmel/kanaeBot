@@ -160,6 +160,17 @@ def setup(bot: commands.Bot):
     @bot.event
     async def on_member_join(member: discord.Member):
         try:
+            role_membre = member.guild.get_role(config.ROLE_MEMBRE_ID)
+            if role_membre:
+                await member.add_roles(role_membre, reason="Nouveau membre dans le cercle Kanaé")
+                logger.info("Rôle Membre du cercle donné à %s", member.name)
+            else:
+                logger.warning("❌ Rôle Membre du cercle introuvable. Vérifie ROLE_MEMBRE_ID.")
+        except discord.Forbidden:
+            logger.error("⛔ Je n'ai pas la permission de donner le rôle. Mon rôle de Bot doit être placé AU-DESSUS du rôle Membre dans les paramètres Discord !")
+        except Exception as e:
+            logger.warning("Erreur lors de l'attribution du rôle à %s : %s", member.name, e)
+        try:
             guild = member.guild
             invites_before = state.invite_cache.get(guild.id, [])
             invites_after = await guild.invites()
