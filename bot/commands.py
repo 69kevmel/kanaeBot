@@ -1219,7 +1219,6 @@ def setup(bot: commands.Bot):
 
         if total_gained > 0:
             new_total = await database.add_points(database.db_pool, discord_id, total_gained)
-            await database.add_points(database.db_pool, discord_id, total_gained)
             report.append(f"\n🎁 TOTAL : +{total_gained} points")
             await helpers.update_member_prestige_role(interaction.user, new_total)
 
@@ -1250,29 +1249,31 @@ def setup(bot: commands.Bot):
     @bot.tree.command(name="help-concours", description="Affiche toutes les façons de gagner des points pour le Kanaé d'Or !")
     async def help_concours(interaction: discord.Interaction):
         message = (
-            "🏆 **GUIDE DU CONCOURS KANAÉ D'OR** 🏆\n\n"
+            "🏆 **GUIDE COMPLET DU KANAÉ D'OR** 🏆\n\n"
             "💸 **Soutien & Croissance (Le Jackpot)**\n"
             "   • 💎 **Boost Discord :** +1000 points instantanés pour le soutien !\n"
             "   • 💜 **Twitch Sub :** +1000 points / mois (via `/refresh-points`)\n"
             "   • 🔗 **Twitch Follow :** +200 points (1 seule fois, via `/refresh-points`)\n"
             "   • 🤝 **Parrainage :** +250 points si ton invité reste au moins 2 heures\n\n"
             "🎰 **Économie & Casino**\n"
-            "   • 🌅 **`/wakeandbake` :** +50 points par jour (jusqu'à 100 pts si tu as une bonne série) !\n"
-            "   • 🎲 **`/bet` & `/douille` :** Multiplie tes points en jouant... ou perds tout !\n\n"
+            "   • 🌅 **`/wakeandbake` :** +50 points de base (monte jusqu'à 100 pts avec une série de 11j) !\n"
+            "   • 🎲 **`/bet` :** Parie tes points.\n"
+            "   • 🔫 **`/douille` :** Roulette russe à 6 joueurs. Le perdant régale les survivants !\n\n"
             "🗣️ **Activité Discord (Grind Quotidien)**\n"
-            "   • 🎙️ **Vocal :** +15 points toutes les 30 minutes passées en salon vocal\n"
-            "   • 📸 **Médias :** +15 points par photo/vidéo postée (1 fois par jour et par salon spécial)\n"
-            "   • ✨ **Réactions :** +2 points par émoji reçu sur tes messages\n\n"
+            "   • 🎙️ **Vocal :** +15 points toutes les 30 minutes passées en salon vocal.\n"
+            "   • 📸 **Médias :** +15 points par photo/vidéo postée (1 fois/jour par salon spécial).\n"
+            "   • ✨ **Réactions :** +2 points par émoji reçu sur tes messages (hors bots).\n\n"
             "🧵 **Le Forum (Threads)**\n"
-            "   • 📝 **Créer un sujet :** +25 points (1 fois/jour)\n"
-            "   • 💬 **Participer :** +5 points pour ta première réponse sur un sujet\n"
-            "   • 👑 **Bonus Créateur :** +2 points quand quelqu'un te répond\n\n"
+            "   • 📝 **Créer un sujet :** +25 points (limité à 1 fois par jour).\n"
+            "   • 💬 **Participer :** +5 points pour ta première réponse sur un sujet.\n"
+            "   • 👑 **Bonus Créateur :** +2 points quand quelqu'un répond à ton sujet.\n\n"
             "📺 **Activité Twitch**\n"
-            "   • 💬 **Chat en live :** +1 point par message envoyé quand le live est ON (1 pt/minute max)\n\n"
+            "   • 💬 **Chat en live :** +1 point par minute quand tu écris pendant que le live est ON !\n\n"
             "🌿 **Mini-Jeu Pokéweed**\n"
-            "   • 🃏 **`/booster` :** +2 à +15 points par carte (+5 pts si c'est une nouvelle !)\n"
-            "   • ⚡ **`/capture` :** Gagne des points bonus si tu es le premier à attraper le sauvage\n\n"
-            "🔥 *Que le meilleur gagne frérot !*"
+            "   • 🃏 **`/booster` :** +2 à +15 points par carte (+5 pts si c'est une nouvelle !).\n"
+            "   • ⚡ **`/capture` :** Gagne la valeur en points de la carte si tu l'attrapes en premier.\n"
+            "   • 💰 **Vente :** Tu peux revendre tes doublons directement depuis ton `/pokedex`.\n\n"
+            "🔥 *Que le meilleur gagne frérot, fais grimper ton prestige !*"
         )
         await interaction.response.send_message(message, ephemeral=True)
 
@@ -1285,23 +1286,24 @@ def setup(bot: commands.Bot):
             "🛠️ **GUIDE DES COMMANDES KANAÉBOT** 🛠️\n\n"
             "💬 **Général & IA**\n"
             "   • `/hey [message]` : Discute avec l'IA officielle du serveur.\n"
-            "   • `/candidature` : Remplis le formulaire pour postuler dans le staff.\n\n"
+            "   • `/candidature` : Remplis le formulaire pour postuler dans le staff.\n"
             "🏆 **Économie & Jeux**\n"
-            "   • `/score [@membre]` : Affiche ton score total ou celui d'un pote.\n"
-            "   • `/top-5` : Affiche le classement des 5 plus gros fumeurs.\n"
-            "   • `/wakeandbake` : 🌅 Ta récompense quotidienne gratuite (multiplicateur x2 max) !\n"
-            "   • `/bet [mise]` : 🎰 Parie tes points (48% de chance de doubler).\n"
-            "   • `/douille [mise]` : 🔫 Roulette russe multijoueur (jusqu'à 6 joueurs).\n\n"
+            "   • `/score [@membre]` : Affiche tes points (Mois/Vie) et ton rang actuel.\n"
+            "   • `/top [catégorie]` : Affiche le classement Mensuel ou le Panthéon à vie.\n"
+            "   • `/wakeandbake` : Ta récompense quotidienne gratuite avec multiplicateur 🔥.\n"
+            "   • `/bet [mise]` : Tente de doubler tes points au casino.\n"
+            "   • `/douille [mise]` : Lance une roulette russe multijoueur.\n\n"
             "🌿 **Mini-Jeu Pokéweed**\n"
-            "   • `/booster` : Ouvre un paquet de 4 cartes Pokéweed (1 fois toutes les 12h).\n"
-            "   • `/capture` : Dégaine le plus vite pour attraper le Pokéweed sauvage.\n"
-            "   • `/pokedex [@membre]` : Affiche ta collection de cartes triées par rareté.\n\n"
+            "   • `/booster` : Ouvre un paquet de 4 cartes (disponible toutes les 12h).\n"
+            "   • `/capture` : Attrape le Pokéweed sauvage qui vient d'apparaître.\n"
+            "   • `/pokedex [@membre]` : Ta collection illustrée avec option de vente.\n"
+            "   • `/echange [@membre]` : Propose un échange sécurisé de cartes à un pote.\n\n"
             "📺 **Twitch & Réseaux**\n"
-            "   • `/link-twitch [pseudo]` : Relie ton compte Twitch pour gagner tes points.\n"
-            "   • `/unlink-twitch` : Délie ton compte si tu t'es trompé.\n"
-            "   • `/mes-reseaux` : Affiche tes comptes sociaux reliés à Kanaé.\n"
-            "   • `/refresh-points` : Récupère tes points liés à Twitch (Follow & Subs) !\n\n"
-            "*(Seules tes commandes s'affichent, les commandes admin sont secrètes 🥷)*"
+            "   • `/link-twitch [pseudo]` : Relie ton compte pour gagner tes points.\n"
+            "   • `/mes-reseaux` : Liste de tes comptes sociaux liés à ton profil.\n"
+            "   • `/refresh-points` : Récupère manuellement tes récompenses de Follow et de Sub !\n"
+            "   • `/unlink-twitch` : Retire ton compte Twitch actuel.\n\n"
+            "*(Les commandes admin ne sont pas listées ici 🥷)*"
         )
         await interaction.response.send_message(message, ephemeral=True)
     

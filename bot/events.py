@@ -127,7 +127,7 @@ def setup(bot: commands.Bot):
             logger.info("%d slash commands synced", len(synced))
         except Exception as e:
             logger.error("Slash command sync failed: %s", e)
-        #tasks.weekly_recap.start(bot)
+        tasks.weekly_recap.start(bot)
         tasks.monthly_winner_announcement.start(bot)
         tasks.daily_scores_backup.start(bot)
         tasks.update_voice_points.start(bot)

@@ -60,7 +60,6 @@ async def update_member_prestige_role(member: discord.Member, points: int):
     # Sécurité 1 : On s'assure que c'est bien un membre d'un serveur et pas un message privé
     if not isinstance(member, discord.Member):
         return
-    return
     # 1. Trouver le grade cible basé sur les points actuels
     target_role_id = None
     target_threshold = 0

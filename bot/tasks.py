@@ -128,6 +128,7 @@ async def update_voice_points(bot: discord.Client):
                 if state.voice_times[user_id] >= 1800:
                     # 🌿 On passe à 15 points toutes les 30 min !
                     state.voice_times[user_id] -= 1800
+                    await database.add_points(database.db_pool, user_id, 15)
 
 class NewsApprovalView(discord.ui.View):
     def __init__(self, news_content: str):
@@ -385,7 +386,7 @@ async def monthly_winner_announcement(bot: discord.Client):
     now = datetime.now(timezone.utc)
     
     # S'exécute le 1er de chaque mois, à 16h20 pile
-    if now.day == 1 and now.hour == 15 and now.minute == 20:
+    if now.day == 1 and now.hour == 10 and now.minute == 0:
         channel = bot.get_channel(config.HALL_OF_FLAMME_CHANNEL_ID)
         if not channel:
             return
