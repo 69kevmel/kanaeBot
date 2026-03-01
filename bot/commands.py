@@ -10,7 +10,7 @@ import re
 import random
 
 from . import config, database, helpers, state
-from datetime import datetime, time, timedelta, timezone, date
+from datetime import datetime, timedelta, timezone, date
 
 logger = logging.getLogger(__name__)
 
@@ -1475,7 +1475,7 @@ def setup(bot: commands.Bot):
             )
             return
             
-        end_time = int(time.time() + 60)
+        end_time = int(datetime.now(timezone.utc).timestamp() + 60)
         
         view = DouilleView(interaction.user.id, mise, end_time) 
         
