@@ -1353,14 +1353,11 @@ def setup(bot: commands.Bot):
     @bot.tree.command(name="bet", description="Parie tes points Kanaé ! 🎰")
     @app_commands.describe(mise="Le nombre de points que tu veux parier")
     async def bet(interaction: discord.Interaction, mise: int):
-        # On ne met pas ephemeral=True pour que TOUT LE MONDE voie le résultat et rigole !
-        await interaction.response.defer(ephemeral=False)
-
         user_id = str(interaction.user.id)
 
         # 1. Sécurité : Vérifier le montant
         if mise <= 0:
-            await interaction.followup.send("❌ Frérot, tu dois parier un montant positif (au moins 1 point).", ephemeral=True)
+            await interaction.response.send_message("❌ Frérot, tu dois parier un montant positif (au moins 1 point).", ephemeral=True)
             return
 
         # 2. Sécurité : Vérifier si l'utilisateur a assez de points (mois + vie)
@@ -1371,15 +1368,27 @@ def setup(bot: commands.Bot):
         solde_jouable = min(current_points, monthly_points)
 
         if solde_jouable < mise:
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 f"❌ T'es à sec ! Tu ne peux parier que ce que tu possèdes sur les DEUX compteurs (Maximum jouable: **{solde_jouable}**).\n"
                 f"*(Rappel: tu as **{monthly_points} pts** ce mois-ci et **{current_points} pts** à vie)*.", 
                 ephemeral=True
             )
             return
 
+        # --- NOUVEAUTÉ : On répond en privé au joueur que son pari est parti ---
+        await interaction.response.send_message(
+            f"🎰 Les dés sont jetés pour **{mise} pts** ! Va vite voir le résultat dans <#1477651520878280914> 💨", 
+            ephemeral=True
+        )
+
         # 3. Le fameux tirage au sort (1 à 100)
         roll = random.randint(1, 100)
+
+        # --- NOUVEAUTÉ : On récupère ton salon casino ---
+        casino_channel = interaction.client.get_channel(1477651520878280914)
+        if not casino_channel:
+            logger.error("❌ Salon Casino introuvable !")
+            return
 
         if roll <= 48:
             # 🎉 GAGNÉ (48% de chance : 1 à 48)
@@ -1393,13 +1402,11 @@ def setup(bot: commands.Bot):
                             f"💰 Ton nouveau solde à vie : **{new_total} points**.",
                 color=discord.Color.green()
             )
-            await interaction.followup.send(embed=embed)
+            # On envoie l'embed DANS LE SALON CASINO (avec un ping pour qu'il le voie bien)
+            await casino_channel.send(content=interaction.user.mention, embed=embed)
         else:
             # 💸 PERDU (52% de chance : 49 à 100)
-            # On soustrait la mise en envoyant un nombre négatif
             new_total = await database.add_points(database.db_pool, user_id, -mise)
-            
-            # Mise à jour du rôle (s'il perd beaucoup, il peut être rétrogradé)
             await helpers.update_member_prestige_role(interaction.user, new_total)
             
             embed = discord.Embed(
@@ -1410,7 +1417,8 @@ def setup(bot: commands.Bot):
                             f"*La maison gagne toujours :) (Mais tu peux toujours recommencer !)*",
                 color=discord.Color.red()
             )
-            await interaction.followup.send(embed=embed)
+            # On envoie l'embed DANS LE SALON CASINO
+            await casino_channel.send(content=interaction.user.mention, embed=embed)
 
     # ---------------------------------------
     # /wakeandbake (Daily Reward)

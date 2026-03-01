@@ -130,13 +130,14 @@ async def update_member_prestige_role(member: discord.Member, points: int):
         
         if is_promotion:
             # --- PROMOTION : MP + Message Joyeux ---
+            # Dans le MP, on garde .name car les pings de rôles ne marchent pas en privé
             msg_dm = f"✨ **FÉLICITATIONS FRÉROT !** ✨\n\nTu as franchi un cap avec **{points} points** ! Tu es maintenant : **{target_role.name}** 👑\nContinue comme ça, la légende est en marche ! 🌿🔥"
             await safe_send_dm(member, msg_dm)
             
             if public_channel:
                 announcement = (
                     f"🎉 **ALERTE PRESTIGE !** 🎉\n\n"
-                    f"Félicitations à {member.mention} qui grimpe en grade et devient officiellement : **{target_role.name}** 👑\n"
+                    f"Félicitations à {member.mention} qui grimpe en grade et devient officiellement : {target_role.mention} 👑\n"
                 )
                 await public_channel.send(announcement)
         
@@ -145,9 +146,9 @@ async def update_member_prestige_role(member: discord.Member, points: int):
             if public_channel:
                 import random
                 sad_messages = [
-                    f"📉 **COUP DUR...** {member.mention} vient de perdre son rang de **{old_role_name}** et redescend au rang de **{target_role.name}**. La roue tourne, courage frérot... 🕯️🌿",
-                    f"Aïe... {member.mention} a trop joué avec le feu. Il n'est plus **{old_role_name}** et redevient simple **{target_role.name}**. On t'envoie de la force ! 📉💨",
-                    f"La descente est brutale pour {member.mention}. Adieu le grade **{old_role_name}**, retour au rang de **{target_role.name}**. On remonte la pente bientôt ? 📉🕯️"
+                    f"📉 **COUP DUR...** {member.mention} vient de perdre son rang de **{old_role_name}** et redescend au rang de {target_role.mention}. La roue tourne, courage frérot... 🕯️🌿",
+                    f"Aïe... {member.mention} a trop joué avec le feu. Il n'est plus **{old_role_name}** et redevient simple {target_role.mention}. On t'envoie de la force ! 📉💨",
+                    f"La descente est brutale pour {member.mention}. Adieu le grade **{old_role_name}**, retour au rang de {target_role.mention}. On remonte la pente bientôt ? 📉🕯️"
                 ]
                 await public_channel.send(random.choice(sad_messages))
 
