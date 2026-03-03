@@ -432,3 +432,57 @@ async def monthly_winner_announcement(bot: discord.Client):
         # Remise à zéro mensuelle
         await database.reset_monthly_scores(database.db_pool)
         logger.info("Annonce mensuelle envoyée et scores du mois remis à zéro.")
+
+@tasks.loop(minutes=1)
+async def daily_staff_briefing(bot: discord.Client):
+    now = datetime.now(timezone.utc)
+    
+    # Exécution à 09h00 UTC (10h00 heure d'hiver, 11h00 heure d'été en France)
+    if now.hour == 9 and now.minute == 0:
+        channel = bot.get_channel(config.STAFF_NEWS_REVIEW_CHANNEL_ID) # 👈 METS LE BON ID DANS TON CONFIG.PY
+        if not channel:
+            return
+
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                # 1. Événements d'AUJOURD'HUI
+                await cur.execute("SELECT heure, animateur_id, titre FROM planning_pro WHERE slot_date = CURDATE() AND est_reserve = TRUE ORDER BY heure ASC;")
+                events_today = await cur.fetchall()
+                
+                # 2. Événements des 7 PROCHAINS JOURS
+                await cur.execute("SELECT slot_date, heure, animateur_id, titre FROM planning_pro WHERE slot_date > CURDATE() AND slot_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY) AND est_reserve = TRUE ORDER BY slot_date ASC;")
+                events_week = await cur.fetchall()
+                
+                # 3. Créneaux LIBRES dans les 7 PROCHAINS JOURS
+                await cur.execute("SELECT slot_date, heure FROM planning_pro WHERE slot_date >= CURDATE() AND slot_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY) AND est_reserve = FALSE ORDER BY slot_date ASC;")
+                free_slots = await cur.fetchall()
+
+        # Construction du message
+        lines = ["☀️ **BRIEFING STAFF DU JOUR !** ☀️\n"]
+
+        if events_today:
+            lines.append("🔥 **AU PROGRAMME AUJOURD'HUI :**")
+            for heure, anim_id, titre in events_today:
+                lines.append(f"⏰ **{heure}** : {titre} (par <@{anim_id}>)")
+        else:
+            lines.append("💤 **AUJOURD'HUI :** Aucun event de prévu. Journée chill !")
+
+        lines.append("\n📅 **DANS LES 7 PROCHAINS JOURS :**")
+        if events_week:
+            for d, heure, anim_id, titre in events_week:
+                date_str = d.strftime("%d/%m")
+                lines.append(f"• Le **{date_str}** à {heure} : {titre}")
+        else:
+            lines.append("• *Rien de prévu cette semaine pour le moment.*")
+
+        lines.append("\n⚠️ **CRÉNEAUX À PRENDRE :**")
+        if free_slots:
+            lines.append(f"Il reste **{len(free_slots)} créneaux libres** dans les prochains jours ! Ne dormez pas dessus l'équipe :")
+            for d, heure in free_slots:
+                lines.append(f"🟢 **{d.strftime('%d/%m')}** à {heure}")
+            lines.append("\n👉 *Utilisez `/reserver` pour poser votre animation !*")
+        else:
+            lines.append("Tous les créneaux ouverts sont pris ! Bon boulot la team. 👏")
+
+        embed = discord.Embed(description="\n".join(lines), color=discord.Color.gold())
+        await channel.send(embed=embed)

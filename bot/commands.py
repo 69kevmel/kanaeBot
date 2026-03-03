@@ -1777,3 +1777,115 @@ def setup(bot: commands.Bot):
         
         view = TradePreviewView(interaction.client, interaction.user, membre, p1_id, p2_id, p1_name, p2_name)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    # --- AUTOCOMPLÉTIONS POUR LE PLANNING ---
+    async def slot_free_autocomplete(interaction: discord.Interaction, current: str):
+        slots = await database.get_available_pro_slots(database.db_pool)
+        choices = []
+        for slot_id, d, heure in slots:
+            label = f"{d.strftime('%d/%m/%Y')} à {heure}"
+            if current.lower() in label.lower():
+                choices.append(app_commands.Choice(name=label, value=str(slot_id)))
+        return choices[:25]
+
+    async def slot_cancel_autocomplete(interaction: discord.Interaction, current: str):
+        # Un admin voit tout, un anim ne voit que ses events
+        is_admin = interaction.user.guild_permissions.administrator
+        anim_id = None if is_admin else interaction.user.id
+        
+        slots = await database.get_reserved_pro_slots(database.db_pool, animateur_id=anim_id)
+        choices = []
+        for slot_id, d, heure, titre in slots:
+            label = f"{d.strftime('%d/%m')} - {titre[:20]}"
+            if current.lower() in label.lower():
+                choices.append(app_commands.Choice(name=label, value=str(slot_id)))
+        return choices[:25]
+
+    # ---------------------------------------
+    # /add_creneau (BO)
+    # ---------------------------------------
+    @bot.tree.command(name="add_creneau", description="(Admin/Lead) Ouvre un créneau libre à une date précise")
+    @app_commands.default_permissions(manage_messages=True)
+    @app_commands.describe(date_jj_mm_aaaa="Ex: 25/12/2026", heure="Ex: 21h00")
+    async def add_creneau(interaction: discord.Interaction, date_jj_mm_aaaa: str, heure: str):
+        from datetime import datetime
+        try:
+            # On vérifie que la date est au bon format
+            date_obj = datetime.strptime(date_jj_mm_aaaa, "%d/%m/%Y").date()
+        except ValueError:
+            await interaction.response.send_message("❌ Format de date invalide ! Utilise le format JJ/MM/AAAA (ex: 24/04/2026).", ephemeral=True)
+            return
+
+        await database.add_pro_slot(database.db_pool, date_obj, heure)
+        await interaction.response.send_message(f"✅ Créneau ouvert le **{date_obj.strftime('%d/%m/%Y')} à {heure}** ! Il est dispo pour les animateurs.", ephemeral=True)
+
+    # ---------------------------------------
+    # /reserver (BO)
+    # ---------------------------------------
+    @bot.tree.command(name="reserver", description="(Animateur) Réserve un créneau libre pour ton animation")
+    @app_commands.default_permissions(manage_messages=True)
+    @app_commands.autocomplete(creneau=slot_free_autocomplete)
+    async def reserver(interaction: discord.Interaction, creneau: str, titre: str, description: str):
+        try:
+            slot_id = int(creneau)
+            await database.reserve_pro_slot(database.db_pool, slot_id, interaction.user.id, titre, description)
+            await interaction.response.send_message(f"✅ Créneau réservé pour ton event : **{titre}** !", ephemeral=True)
+        except ValueError:
+            await interaction.response.send_message("❌ Sélection invalide. Utilise la liste déroulante.", ephemeral=True)
+
+    # ---------------------------------------
+    # /annuler_resa (BO)
+    # ---------------------------------------
+    @bot.tree.command(name="annuler_resa", description="(Staff) Annule une réservation si tu t'es trompé")
+    @app_commands.default_permissions(manage_messages=True)
+    @app_commands.autocomplete(creneau=slot_cancel_autocomplete)
+    async def annuler_resa(interaction: discord.Interaction, creneau: str):
+        try:
+            slot_id = int(creneau)
+            await database.cancel_pro_slot(database.db_pool, slot_id)
+            await interaction.response.send_message("🗑️ Réservation annulée. Le créneau redevient **Libre** pour tout le monde !", ephemeral=True)
+        except ValueError:
+            await interaction.response.send_message("❌ Sélection invalide.", ephemeral=True)
+
+    # ---------------------------------------
+    # /planning (BO)
+    # ---------------------------------------
+    @bot.tree.command(name="planning", description="(Staff) Affiche le planning à partir d'aujourd'hui")
+    @app_commands.default_permissions(manage_messages=True)
+    async def planning(interaction: discord.Interaction):
+        slots = await database.get_rolling_planning(database.db_pool)
+        
+        if not slots:
+            await interaction.response.send_message("📭 Aucun créneau n'est prévu à partir d'aujourd'hui. Demandez aux admins de faire `/add_creneau` !", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="📅 Planning Staff (À partir d'aujourd'hui)",
+            color=discord.Color.dark_purple()
+        )
+
+        current_day = ""
+        day_content = ""
+
+        # Les jours de la semaine en Français pour que ça soit propre
+        jours_fr = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+
+        for slot_id, d, heure, est_reserve, anim_id, titre, desc in slots:
+            # Nom du jour + Date (ex: "Mercredi 15/04")
+            jour_str = f"{jours_fr[d.weekday()]} {d.strftime('%d/%m')}"
+
+            if jour_str != current_day:
+                if current_day != "":
+                    embed.add_field(name=f"🗓️ {current_day}", value=day_content, inline=False)
+                current_day = jour_str
+                day_content = ""
+
+            if est_reserve:
+                day_content += f"🔴 **{heure}** : {titre} (par <@{anim_id}>)\n*↳ {desc}*\n\n"
+            else:
+                day_content += f"🟢 **{heure}** : *Créneau Libre*\n\n"
+
+        if current_day != "":
+            embed.add_field(name=f"🗓️ {current_day}", value=day_content, inline=False)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)

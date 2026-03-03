@@ -217,6 +217,20 @@ async def ensure_tables(pool):
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """
             )
+            # Table pour le planning des events
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS planning_pro (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    slot_date DATE NOT NULL,
+                    heure VARCHAR(20) NOT NULL,
+                    est_reserve BOOLEAN DEFAULT FALSE,
+                    animateur_id BIGINT,
+                    titre VARCHAR(100),
+                    description TEXT
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                """
+            )
     logger.info("Database tables checked/created")
 
 async def get_user_points(pool, user_id):
@@ -651,3 +665,50 @@ async def execute_trade(pool, u1_id, p1_id, u2_id, p2_id):
             await conn.rollback()
             logger.error(f"Erreur transaction échange : {e}")
             return False
+        
+# Planning Pro functions
+        
+async def add_pro_slot(pool, date_obj, heure):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("INSERT INTO planning_pro (slot_date, heure) VALUES (%s, %s);", (date_obj, heure))
+
+async def get_available_pro_slots(pool):
+    """Récupère les créneaux libres à partir d'aujourd'hui"""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT id, slot_date, heure FROM planning_pro WHERE est_reserve = FALSE AND slot_date >= CURDATE() ORDER BY slot_date ASC, heure ASC;")
+            return await cur.fetchall()
+
+async def get_reserved_pro_slots(pool, animateur_id=None):
+    """Récupère les créneaux réservés (pour pouvoir annuler)"""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            if animateur_id:
+                await cur.execute("SELECT id, slot_date, heure, titre FROM planning_pro WHERE est_reserve = TRUE AND slot_date >= CURDATE() AND animateur_id = %s ORDER BY slot_date ASC;", (int(animateur_id),))
+            else:
+                await cur.execute("SELECT id, slot_date, heure, titre FROM planning_pro WHERE est_reserve = TRUE AND slot_date >= CURDATE() ORDER BY slot_date ASC;")
+            return await cur.fetchall()
+
+async def reserve_pro_slot(pool, slot_id, animateur_id, titre, description):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE planning_pro SET est_reserve = TRUE, animateur_id = %s, titre = %s, description = %s WHERE id = %s;",
+                (int(animateur_id), titre, description, int(slot_id))
+            )
+
+async def cancel_pro_slot(pool, slot_id):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE planning_pro SET est_reserve = FALSE, animateur_id = NULL, titre = NULL, description = NULL WHERE id = %s;",
+                (int(slot_id),)
+            )
+
+async def get_rolling_planning(pool):
+    """Récupère tout ce qui est prévu (ou libre) à partir d'aujourd'hui"""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT id, slot_date, heure, est_reserve, animateur_id, titre, description FROM planning_pro WHERE slot_date >= CURDATE() ORDER BY slot_date ASC, heure ASC;")
+            return await cur.fetchall()
