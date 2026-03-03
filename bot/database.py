@@ -712,3 +712,10 @@ async def get_rolling_planning(pool):
         async with conn.cursor() as cur:
             await cur.execute("SELECT id, slot_date, heure, est_reserve, animateur_id, titre, description FROM planning_pro WHERE slot_date >= CURDATE() ORDER BY slot_date ASC, heure ASC;")
             return await cur.fetchall()
+
+async def get_pro_slot_by_id(pool, slot_id):
+    """Récupère les infos d'un créneau précis pour les annonces"""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT slot_date, heure, titre FROM planning_pro WHERE id = %s;", (int(slot_id),))
+            return await cur.fetchone()

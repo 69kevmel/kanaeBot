@@ -1440,7 +1440,7 @@ def setup(bot: commands.Bot):
             logger.error("❌ Salon Casino introuvable !")
             return
 
-        if roll <= 42:
+        if roll <= 46:
             # 🎉 GAGNÉ (48% de chance : 1 à 48)
             new_total = await database.add_points(database.db_pool, user_id, mise)
             await helpers.update_member_prestige_role(interaction.user, new_total)
@@ -1828,8 +1828,24 @@ def setup(bot: commands.Bot):
     async def reserver(interaction: discord.Interaction, creneau: str, titre: str, description: str):
         try:
             slot_id = int(creneau)
+            
+            # On récupère d'abord les infos du créneau (date et heure)
+            slot_info = await database.get_pro_slot_by_id(database.db_pool, slot_id)
+            
+            # On réserve en base de données
             await database.reserve_pro_slot(database.db_pool, slot_id, interaction.user.id, titre, description)
+            
+            # Message éphémère de confirmation pour l'animateur
             await interaction.response.send_message(f"✅ Créneau réservé pour ton event : **{titre}** !", ephemeral=True)
+            
+            # L'ANNONCE PUBLIQUE DANS LE SALON STAFF
+            if slot_info:
+                d, heure, _ = slot_info
+                staff_channel = interaction.client.get_channel(config.STAFF_NEWS_REVIEW_CHANNEL_ID)
+                if staff_channel:
+                    msg = f"🟢 **Nouvelle Animation !** {interaction.user.mention} a pris le créneau du **{d.strftime('%d/%m')} à {heure}** pour gérer : **{titre}** 🔥"
+                    await staff_channel.send(msg)
+                    
         except ValueError:
             await interaction.response.send_message("❌ Sélection invalide. Utilise la liste déroulante.", ephemeral=True)
 
@@ -1842,8 +1858,24 @@ def setup(bot: commands.Bot):
     async def annuler_resa(interaction: discord.Interaction, creneau: str):
         try:
             slot_id = int(creneau)
+            
+            # On récupère les infos AVANT d'effacer (pour savoir ce qu'on a annulé)
+            slot_info = await database.get_pro_slot_by_id(database.db_pool, slot_id)
+            
+            # On annule en base de données
             await database.cancel_pro_slot(database.db_pool, slot_id)
+            
+            # Message éphémère de confirmation
             await interaction.response.send_message("🗑️ Réservation annulée. Le créneau redevient **Libre** pour tout le monde !", ephemeral=True)
+            
+            # L'ANNONCE PUBLIQUE DANS LE SALON STAFF
+            if slot_info:
+                d, heure, titre_annule = slot_info
+                staff_channel = interaction.client.get_channel(config.STAFF_NEWS_REVIEW_CHANNEL_ID)
+                if staff_channel:
+                    msg = f"🔴 **Créneau Libéré !** {interaction.user.mention} vient d'annuler son animation *{titre_annule}* prévue le **{d.strftime('%d/%m')} à {heure}**.\n👉 Le créneau est de nouveau dispo, à vos commandes !"
+                    await staff_channel.send(msg)
+
         except ValueError:
             await interaction.response.send_message("❌ Sélection invalide.", ephemeral=True)
 
