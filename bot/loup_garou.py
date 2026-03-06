@@ -4,6 +4,7 @@ from discord.ext import commands
 import random
 import logging
 
+
 logger = logging.getLogger(__name__)
 
 # --- INFOS SUR LES RÔLES (Pour styliser les Messages Privés) ---
@@ -310,4 +311,5 @@ class LoupGarouCog(commands.Cog):
 async def setup(bot: commands.Bot):
     # On ajoute la Cog au bot globalement
     await bot.add_cog(LoupGarouCog(bot))
+
     logger.info("🐺 Module Loup-Garou chargé avec succès !")
