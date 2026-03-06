@@ -17,15 +17,16 @@ intents.reactions = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Register events and commands
+# Register events and commands (Fichiers normaux)
 events.setup(bot)
 bot_commands.setup(bot)
-loup_garou.setup(bot)
 
 async def main():
     async with bot:
+        # Register Loup-Garou (Fichier asynchrone)
+        await loup_garou.setup(bot)
+        
         await bot.start(config.TOKEN)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
