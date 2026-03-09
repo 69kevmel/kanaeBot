@@ -1826,6 +1826,7 @@ def setup(bot: commands.Bot):
     @app_commands.default_permissions(manage_messages=True)
     @app_commands.autocomplete(creneau=slot_free_autocomplete)
     async def reserver(interaction: discord.Interaction, creneau: str, titre: str, description: str):
+        await interaction.response.defer(ephemeral=True)
         try:
             slot_id = int(creneau)
             slot_info = await database.get_pro_slot_by_id(database.db_pool, slot_id)
@@ -1876,13 +1877,13 @@ def setup(bot: commands.Bot):
             except Exception as e:
                 logger.error(f"Impossible de créer l'event Discord: {e}")
                 # 🚨 ON ARRÊTE TOUT ET ON PRÉVIENT L'ANIMATEUR SI ÇA PLANTE !
-                await interaction.response.send_message(f"❌ Impossible de créer l'événement Discord. (Raison : `{e}`).\n👉 Le créneau n'a **PAS** été réservé, réessaie !", ephemeral=True)
+                await interaction.followup.send(f"❌ Impossible de créer l'événement Discord. (Raison : `{e}`).\n👉 Le créneau n'a **PAS** été réservé, réessaie !", ephemeral=True)
                 return 
 
             # On réserve en base de données avec l'event_id UNIQUEMENT si ça a marché au-dessus
             await database.reserve_pro_slot(database.db_pool, slot_id, interaction.user.id, titre, description, event_id)
             
-            await interaction.response.send_message(f"✅ Créneau réservé pour ton event : **{titre}** ! L'événement officiel a bien été créé en haut du serveur.", ephemeral=True)
+            await interaction.followup.send(f"✅ Créneau réservé pour ton event : **{titre}** ! L'événement officiel a bien été créé en haut du serveur.", ephemeral=True)
             
             # Annonce public dans le channel staff
             staff_channel = interaction.client.get_channel(config.STAFF_NEWS_REVIEW_CHANNEL_ID)
@@ -1893,7 +1894,7 @@ def setup(bot: commands.Bot):
             await helpers.refresh_event_message(interaction.client)
                     
         except ValueError:
-            await interaction.response.send_message("❌ Sélection invalide. Utilise la liste déroulante.", ephemeral=True)
+            await interaction.followup.send("❌ Sélection invalide. Utilise la liste déroulante.", ephemeral=True)
 
     # ---------------------------------------
     # /annuler_resa (BO)
@@ -1902,6 +1903,7 @@ def setup(bot: commands.Bot):
     @app_commands.default_permissions(manage_messages=True)
     @app_commands.autocomplete(creneau=slot_cancel_autocomplete)
     async def annuler_resa(interaction: discord.Interaction, creneau: str):
+        await interaction.response.defer(ephemeral=True)
         try:
             slot_id = int(creneau)
             slot_info = await database.get_pro_slot_by_id(database.db_pool, slot_id)
@@ -1928,11 +1930,11 @@ def setup(bot: commands.Bot):
                     await staff_channel.send(msg)
 
             await database.cancel_pro_slot(database.db_pool, slot_id)
-            await interaction.response.send_message("🗑️ Réservation et événement Discord annulés. Le créneau redevient **Libre** !", ephemeral=True)
+            await interaction.followup.send("🗑️ Réservation et événement Discord annulés. Le créneau redevient **Libre** !", ephemeral=True)
             await helpers.refresh_event_message(interaction.client)
 
         except ValueError:
-            await interaction.response.send_message("❌ Sélection invalide.", ephemeral=True)
+            await interaction.followup.send("❌ Sélection invalide.", ephemeral=True)
 
     # ---------------------------------------
     # /del_creneau (BO)
@@ -1954,12 +1956,13 @@ def setup(bot: commands.Bot):
     @app_commands.default_permissions(manage_messages=True)
     @app_commands.autocomplete(creneau=slot_all_autocomplete)
     async def del_creneau(interaction: discord.Interaction, creneau: str):
+        await interaction.response.defer(ephemeral=True)
         try:
             slot_id = int(creneau)
             slot_info = await database.get_pro_slot_by_id(database.db_pool, slot_id)
             
             if not slot_info:
-                await interaction.response.send_message("❌ Ce créneau n'existe pas.", ephemeral=True)
+                await interaction.followup.send("❌ Ce créneau n'existe pas.", ephemeral=True)
                 return
 
             d, heure, _, event_id = slot_info
@@ -1976,11 +1979,11 @@ def setup(bot: commands.Bot):
                     pass
 
             await database.delete_pro_slot(database.db_pool, slot_id)
-            await interaction.response.send_message(f"🗑️ C'est fait ! Le créneau du **{d.strftime('%d/%m/%Y')} à {heure}** a été définitivement effacé.", ephemeral=True)
+            await interaction.followup.send(f"🗑️ C'est fait ! Le créneau du **{d.strftime('%d/%m/%Y')} à {heure}** a été définitivement effacé.", ephemeral=True)
             await helpers.refresh_event_message(interaction.client)
             
         except ValueError:
-            await interaction.response.send_message("❌ Sélection invalide.", ephemeral=True)
+            await interaction.followup.send("❌ Sélection invalide.", ephemeral=True)
 
     # ---------------------------------------
     # /planning (BO)
