@@ -227,7 +227,8 @@ async def ensure_tables(pool):
                     est_reserve BOOLEAN DEFAULT FALSE,
                     animateur_id BIGINT,
                     titre VARCHAR(100),
-                    description TEXT
+                    description TEXT,
+                    event_id BIGINT
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """
             )
@@ -741,6 +742,42 @@ async def get_public_events(pool):
         async with conn.cursor() as cur:
             await cur.execute("""
                 SELECT slot_date, heure, animateur_id, titre, description 
+                FROM planning_pro 
+                WHERE est_reserve = TRUE AND slot_date >= CURDATE() 
+                ORDER BY slot_date ASC, heure ASC;
+            """)
+            return await cur.fetchall()
+        
+
+async def reserve_pro_slot(pool, slot_id, animateur_id, titre, description, event_id=None):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE planning_pro SET est_reserve = TRUE, animateur_id = %s, titre = %s, description = %s, event_id = %s WHERE id = %s;",
+                (int(animateur_id), titre, description, event_id, int(slot_id))
+            )
+
+async def cancel_pro_slot(pool, slot_id):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE planning_pro SET est_reserve = FALSE, animateur_id = NULL, titre = NULL, description = NULL, event_id = NULL WHERE id = %s;",
+                (int(slot_id),)
+            )
+
+async def get_pro_slot_by_id(pool, slot_id):
+    """Récupère les infos d'un créneau précis pour les annonces"""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT slot_date, heure, titre, event_id FROM planning_pro WHERE id = %s;", (int(slot_id),))
+            return await cur.fetchone()
+
+async def get_public_events(pool):
+    """Récupère les événements réservés à venir pour le panneau public."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("""
+                SELECT slot_date, heure, animateur_id, titre, description, event_id 
                 FROM planning_pro 
                 WHERE est_reserve = TRUE AND slot_date >= CURDATE() 
                 ORDER BY slot_date ASC, heure ASC;
