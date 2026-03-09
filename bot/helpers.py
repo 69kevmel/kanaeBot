@@ -241,8 +241,12 @@ async def refresh_event_message(bot: discord.Client):
     else:
         jours_fr = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
         
-        for d, heure, anim_id, titre, desc in events:
+        # On déballe 6 variables maintenant, dont event_id à la fin !
+        for d, heure, anim_id, titre, desc, event_id in events:
             jour_str = f"{jours_fr[d.weekday()]} {d.strftime('%d/%m')}"
+            
+            # 🔥 LE LIEN MAGIQUE DE L'EVENT DISCORD
+            event_link = f"\n> 🔔 [**S'inscrire à l'Événement**](https://discord.com/events/{msg.guild.id}/{event_id})" if event_id else ""
             
             # Bloc pour chaque événement avec citations et emojis
             embed.add_field(
@@ -250,7 +254,7 @@ async def refresh_event_message(bot: discord.Client):
                 value=(
                     f"🔥 **{titre.upper()}**\n"
                     f"> 🎤 *Animé par* <@{anim_id}>\n"
-                    f"> 📝 {desc}\n"
+                    f"> 📝 {desc}{event_link}\n" # <-- ON AJOUTE LE LIEN ICI
                     "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
                 ),
                 inline=False

@@ -1828,24 +1828,55 @@ def setup(bot: commands.Bot):
     async def reserver(interaction: discord.Interaction, creneau: str, titre: str, description: str):
         try:
             slot_id = int(creneau)
-            
-            # On récupère d'abord les infos du créneau (date et heure)
             slot_info = await database.get_pro_slot_by_id(database.db_pool, slot_id)
             
-            # On réserve en base de données
-            await database.reserve_pro_slot(database.db_pool, slot_id, interaction.user.id, titre, description)
+            event_id = None
+            d, heure_str, _, _ = slot_info 
             
-            # Message éphémère de confirmation pour l'animateur
-            await interaction.response.send_message(f"✅ Créneau réservé pour ton event : **{titre}** !", ephemeral=True)
+            # 🌟 MAGIE DISCORD : On crée l'événement officiel
+            try:
+                import re
+                from datetime import datetime, timedelta
+                import zoneinfo
+                
+                # On extrait les heures et minutes de "21h30" ou "21:30"
+                match = re.search(r"(\d{1,2})[hH:](\d{2})", heure_str)
+                if match:
+                    h, m = int(match.group(1)), int(match.group(2))
+                    naive_dt = datetime.combine(d, datetime.min.time()).replace(hour=h, minute=m)
+                    
+                    # On définit l'heure sur le fuseau français
+                    start_dt = naive_dt.replace(tzinfo=zoneinfo.ZoneInfo("Europe/Paris"))
+                    
+                    # Sécurité : Si l'heure est passée, Discord plantera, on force à +5 mins
+                    if start_dt < discord.utils.utcnow():
+                        start_dt = discord.utils.utcnow() + timedelta(minutes=5)
+                        
+                    event = await interaction.guild.create_scheduled_event(
+                        name=titre,
+                        description=f"{description}\n\n🎤 Animé par {interaction.user.display_name}",
+                        start_time=start_dt,
+                        end_time=start_dt + timedelta(hours=2),
+                        entity_type=discord.EntityType.external,
+                        location="Salon Vocal Kanaé 💨",
+                        privacy_level=discord.PrivacyLevel.guild_only
+                    )
+                    event_id = event.id # On sauvegarde l'ID secret !
+            except Exception as e:
+                logger.error(f"Impossible de créer l'event Discord: {e}")
+
+            # On réserve en base de données avec l'event_id
+            await database.reserve_pro_slot(database.db_pool, slot_id, interaction.user.id, titre, description, event_id)
+            
+            await interaction.response.send_message(f"✅ Créneau réservé pour ton event : **{titre}** ! L'événement officiel a été créé.", ephemeral=True)
+            
+            # Annonce public dans le channel staff
+            staff_channel = interaction.client.get_channel(config.STAFF_NEWS_REVIEW_CHANNEL_ID)
+            if staff_channel:
+                msg = f"🟢 **Nouvelle Animation !** {interaction.user.mention} a pris le créneau du **{d.strftime('%d/%m')} à {heure_str}** pour gérer : **{titre}** 🔥"
+                await staff_channel.send(msg)
+                
             await helpers.refresh_event_message(interaction.client)
-            
-            # L'ANNONCE PUBLIQUE DANS LE SALON STAFF
-            if slot_info:
-                d, heure, _ = slot_info
-                staff_channel = interaction.client.get_channel(config.STAFF_NEWS_REVIEW_CHANNEL_ID)
-                if staff_channel:
-                    msg = f"🟢 **Nouvelle Animation !** {interaction.user.mention} a pris le créneau du **{d.strftime('%d/%m')} à {heure}** pour gérer : **{titre}** 🔥"
-                    await staff_channel.send(msg)
                     
         except ValueError:
             await interaction.response.send_message("❌ Sélection invalide. Utilise la liste déroulante.", ephemeral=True)
@@ -1859,26 +1890,68 @@ def setup(bot: commands.Bot):
     async def annuler_resa(interaction: discord.Interaction, creneau: str):
         try:
             slot_id = int(creneau)
-            
-            # On récupère les infos AVANT d'effacer (pour savoir ce qu'on a annulé)
             slot_info = await database.get_pro_slot_by_id(database.db_pool, slot_id)
             
-            # On annule en base de données
-            await database.cancel_pro_slot(database.db_pool, slot_id)
-            
-            # Message éphémère de confirmation
-            await interaction.response.send_message("🗑️ Réservation annulée. Le créneau redevient **Libre** pour tout le monde !", ephemeral=True)
-
-            await helpers.refresh_event_message(interaction.client)
-            
-            # L'ANNONCE PUBLIQUE DANS LE SALON STAFF
             if slot_info:
-                d, heure, titre_annule = slot_info
+                d, heure, titre_annule, event_id = slot_info
+                
+                # 🗑️ Suppression de l'event natif Discord
+                if event_id:
+                    try:
+                        event = interaction.guild.get_scheduled_event(event_id)
+                        if not event:
+                            event = await interaction.guild.fetch_scheduled_event(event_id)
+                        if event:
+                            await event.delete()
+                    except discord.NotFound:
+                        pass # Déjà supprimé à la main
+                    except Exception as e:
+                        logger.error(f"Erreur suppression event : {e}")
+
                 staff_channel = interaction.client.get_channel(config.STAFF_NEWS_REVIEW_CHANNEL_ID)
                 if staff_channel:
                     msg = f"🔴 **Créneau Libéré !** {interaction.user.mention} vient d'annuler son animation *{titre_annule}* prévue le **{d.strftime('%d/%m')} à {heure}**.\n👉 Le créneau est de nouveau dispo, à vos commandes !"
                     await staff_channel.send(msg)
 
+            await database.cancel_pro_slot(database.db_pool, slot_id)
+            await interaction.response.send_message("🗑️ Réservation et événement Discord annulés. Le créneau redevient **Libre** !", ephemeral=True)
+            await helpers.refresh_event_message(interaction.client)
+
+        except ValueError:
+            await interaction.response.send_message("❌ Sélection invalide.", ephemeral=True)
+
+    # ---------------------------------------
+    # /del_creneau (BO)
+    # ---------------------------------------
+    @bot.tree.command(name="del_creneau", description="(Admin/Lead) Supprime définitivement un créneau du planning")
+    @app_commands.default_permissions(manage_messages=True)
+    @app_commands.autocomplete(creneau=slot_all_autocomplete)
+    async def del_creneau(interaction: discord.Interaction, creneau: str):
+        try:
+            slot_id = int(creneau)
+            slot_info = await database.get_pro_slot_by_id(database.db_pool, slot_id)
+            
+            if not slot_info:
+                await interaction.response.send_message("❌ Ce créneau n'existe pas.", ephemeral=True)
+                return
+
+            d, heure, _, event_id = slot_info
+            
+            # 🗑️ Suppression de l'event Discord s'il était réservé
+            if event_id:
+                try:
+                    event = interaction.guild.get_scheduled_event(event_id)
+                    if not event:
+                        event = await interaction.guild.fetch_scheduled_event(event_id)
+                    if event:
+                        await event.delete()
+                except Exception:
+                    pass
+
+            await database.delete_pro_slot(database.db_pool, slot_id)
+            await interaction.response.send_message(f"🗑️ C'est fait ! Le créneau du **{d.strftime('%d/%m/%Y')} à {heure}** a été définitivement effacé.", ephemeral=True)
+            await helpers.refresh_event_message(interaction.client)
+            
         except ValueError:
             await interaction.response.send_message("❌ Sélection invalide.", ephemeral=True)
 
@@ -1939,36 +2012,7 @@ def setup(bot: commands.Bot):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # ---------------------------------------
-    # /del_creneau (BO)
-    # ---------------------------------------
-    @bot.tree.command(name="del_creneau", description="(Admin/Lead) Supprime définitivement un créneau du planning")
-    @app_commands.default_permissions(manage_messages=True)
-    @app_commands.autocomplete(creneau=slot_all_autocomplete)
-    async def del_creneau(interaction: discord.Interaction, creneau: str):
-        try:
-            slot_id = int(creneau)
-            
-            # On récupère les infos avant de supprimer pour le message de confirmation
-            slot_info = await database.get_pro_slot_by_id(database.db_pool, slot_id)
-            if not slot_info:
-                await interaction.response.send_message("❌ Ce créneau n'existe pas ou a déjà été supprimé.", ephemeral=True)
-                return
 
-            d, heure, _ = slot_info
-            
-            # On supprime purement et simplement de la BDD
-            await database.delete_pro_slot(database.db_pool, slot_id)
-            
-            await interaction.response.send_message(
-                f"🗑️ C'est fait ! Le créneau du **{d.strftime('%d/%m/%Y')} à {heure}** a été définitivement effacé du planning.", 
-                ephemeral=True
-            )
-            await helpers.refresh_event_message(interaction.client)
-        except ValueError:
-            await interaction.response.send_message("❌ Sélection invalide. Utilise la liste déroulante proposée frérot !", ephemeral=True)
-
-    
     @bot.tree.command(name="setup-planning", description="(Admin) Crée le message d'affichage public des events")
     async def setup_planning(interaction: discord.Interaction):
         if not interaction.user.guild_permissions.administrator:
@@ -1998,12 +2042,4 @@ def setup(bot: commands.Bot):
         )
         await interaction.followup.send(instructions, ephemeral=True)
 
-    @bot.tree.command(name="upgrade-db", description="(Admin) Met à jour la BDD pour les Events Discord")
-    async def upgrade_db(interaction: discord.Interaction):
-        async with database.db_pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                try:
-                    await cur.execute("ALTER TABLE planning_pro ADD COLUMN event_id BIGINT DEFAULT NULL;")
-                    await interaction.response.send_message("✅ Base de données mise à jour (Colonne event_id ajoutée) !", ephemeral=True)
-                except Exception as e:
-                    await interaction.response.send_message(f"⚠️ Erreur (déjà fait ?) : {e}", ephemeral=True)
+    
