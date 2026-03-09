@@ -3,6 +3,10 @@ import time
 import discord
 import aiohttp
 
+import re
+import zoneinfo
+from datetime import datetime, timezone, timedelta
+
 from . import config, database
 
 logger = logging.getLogger(__name__)
@@ -200,6 +204,7 @@ async def update_member_prestige_role(member: discord.Member, points: int):
     
 async def refresh_event_message(bot: discord.Client):
     """Met à jour le panneau d'affichage public des événements en temps réel."""
+
     event_channel_id = getattr(config, "EVENT_CHANNEL_ID", None)
     event_message_id = getattr(config, "EVENT_MESSAGE_ID", None)
     
@@ -215,52 +220,154 @@ async def refresh_event_message(bot: discord.Client):
     except discord.NotFound:
         return # Le message a été supprimé
         
-    events = await database.get_public_events(database.db_pool)
+    # 1. Récupération des events de la BDD
+    db_events = await database.get_public_events(database.db_pool)
     
-    # 🕒 Génération du timestamp Discord pour le Temps Réel
+    # 2. Récupération des events Discord (Créés manuellement ou par le bot)
+    try:
+        discord_events = await msg.guild.fetch_scheduled_events()
+    except Exception:
+        discord_events = []
+
+    # 3. Fusion et préparation au tri
+    unified_events = []
+    db_event_ids = set()
+    
+    # Gestion du fuseau horaire
+    try:
+        tz = zoneinfo.ZoneInfo("Europe/Paris")
+    except Exception:
+        tz = timezone(timedelta(hours=1))
+
+    # A) Traitement des events de la BDD
+    for d, heure_str, anim_id, titre, desc, event_id in db_events:
+        if event_id:
+            db_event_ids.add(event_id)
+        
+        h, m = 0, 0
+        match = re.search(r"(\d{1,2})(?:[hH:](\d{2}))?", heure_str)
+        if match:
+            h = int(match.group(1))
+            m = int(match.group(2)) if match.group(2) else 0
+            
+        naive_dt = datetime.combine(d, datetime.min.time()).replace(hour=h, minute=m)
+        start_dt = naive_dt.replace(tzinfo=tz)
+        
+        unified_events.append({
+            "titre": titre,
+            "desc": desc,
+            "anim_id": anim_id,
+            "start_dt": start_dt,
+            "event_id": event_id
+        })
+
+    # B) Ajout des events créés MANUELLEMENT sur Discord
+    for e in discord_events:
+        if e.id not in db_event_ids:
+            unified_events.append({
+                "titre": e.name,
+                "desc": e.description or "*Aucune description fournie.*",
+                "anim_id": e.creator_id,
+                "start_dt": e.start_time.astimezone(tz),
+                "event_id": e.id
+            })
+
+    # 4. Tri Magique : Du plus proche au plus éloigné !
+    unified_events.sort(key=lambda x: x["start_dt"])
+
+    # 🕒 Calculs des dates pour les séparateurs intelligents
     now_ts = int(time.time())
+    now_dt = datetime.now(tz)
+    today = now_dt.date()
     
-    # 🎨 Le design principal ultra stylisé
+    today_iso = today.isocalendar()[:2] # Récupère (Année, Semaine_n°)
+    next_week_iso = (today + timedelta(days=7)).isocalendar()[:2]
+    
+    # 🎨 Construction de l'Embed
     embed = discord.Embed(
-        title="✨ 📅 L'AGENDA OFFICIEL KANAÉ 📅 ✨", 
+        title="📅 L'AGENDA DES EVENTS KANAÉ", 
         description=(
-            "> *Toutes les soirées, events et animations du cercle en un clin d'œil.* 💨\n"
-            f"> 📡 **Liaison en direct** • Dernière synchro : <t:{now_ts}:T> (<t:{now_ts}:R>)\n"
-            "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
+            "*Toutes les soirées, events et animations en un clin d'œil.* 💨\n\n"
+            f"📡 **Synchro en direct :** <t:{now_ts}:R>"
         ),
         color=discord.Color.gold()
     )
     embed.set_thumbnail(url=bot.user.display_avatar.url)
-    
-    if not events:
+
+    if not unified_events:
         embed.add_field(
-            name="📭 Écran Radar Vide...",
-            value="> *L'équipe prépare du lourd en coulisses, restez à l'écoute !* 🌿\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬",
+            name="📭 Écran Vide...",
+            value="*L'équipe prépare du lourd en coulisses, restez à l'écoute !* 🌿",
             inline=False
         )
     else:
         jours_fr = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+        current_cat_id = 0
+        field_count = 0 # Sécurité : Discord bloque à 25 "champs" par message
         
-        # On déballe 6 variables maintenant, dont event_id à la fin !
-        for d, heure, anim_id, titre, desc, event_id in events:
-            jour_str = f"{jours_fr[d.weekday()]} {d.strftime('%d/%m')}"
+        for ev in unified_events:
+            if field_count >= 24:
+                break # On arrête s'il y a trop d'events d'un coup
+                
+            start = ev["start_dt"]
+            ev_date = start.date()
+            days_diff = (ev_date - today).days
+            months_diff = (ev_date.year - today.year) * 12 + ev_date.month - today.month
             
-            # 🔥 LE LIEN MAGIQUE DE L'EVENT DISCORD
-            event_link = f"\n> 🔔 [**S'inscrire à l'Événement**](https://discord.com/events/{msg.guild.id}/{event_id})" if event_id else ""
+            # --- 1. FORMATAGE DE LA DATE (Aujourd'hui, Demain...) ---
+            if days_diff == 0:
+                jour_str = "Aujourd'hui"
+            elif days_diff == 1:
+                jour_str = "Demain"
+            elif days_diff == 2:
+                jour_str = "Après-demain"
+            else:
+                jour_str = f"{jours_fr[start.weekday()]} {start.strftime('%d/%m')}"
+                
+            # --- 2. DÉTERMINATION DE LA CATÉGORIE (Pour les séparateurs) ---
+            ev_iso = ev_date.isocalendar()[:2]
             
-            # Bloc pour chaque événement avec citations et emojis
+            if days_diff <= 2:
+                cat_id = 1
+                cat_name = "🔥 IMMINENT"
+            elif ev_iso == today_iso:
+                cat_id = 2
+                cat_name = "📅 CETTE SEMAINE"
+            elif ev_iso == next_week_iso:
+                cat_id = 3
+                cat_name = "🚀 SEMAINE PROCHAINE"
+            elif months_diff == 1:
+                cat_id = 4
+                cat_name = "📆 MOIS PROCHAIN"
+            else:
+                cat_id = 5
+                cat_name = "🔮 PLUS TARD"
+                
+            # --- 3. AJOUT DU SÉPARATEUR SI ON CHANGE DE CATÉGORIE ---
+            if cat_id != current_cat_id:
+                embed.add_field(
+                    name=f"━━━ {cat_name} ━━━",
+                    value="\u200b", # Code secret Discord : Espace invisible !
+                    inline=False
+                )
+                current_cat_id = cat_id
+                field_count += 1
+                
+                if field_count >= 24:
+                    break # On revérifie au cas où le séparateur était le 25ème
+
+            heure_str = start.strftime("%Hh%M").replace("h00", "h")
+            anim_text = f"🎤 **Animé par :** <@{ev['anim_id']}>\n" if ev['anim_id'] else ""
+            event_link = f"\n\n🔗 [**S'inscrire à l'Événement**](https://discord.com/events/{msg.guild.id}/{ev['event_id']})" if ev["event_id"] else ""
+            
+            # Ajout de l'événement en lui-même
             embed.add_field(
-                name=f"🗓️ {jour_str} à {heure} ⏳",
-                value=(
-                    f"🔥 **{titre.upper()}**\n"
-                    f"> 🎤 *Animé par* <@{anim_id}>\n"
-                    f"> 📝 {desc}{event_link}\n" # <-- ON AJOUTE LE LIEN ICI
-                    "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
-                ),
+                name=f"🗓️ {jour_str} à {heure_str} • 🔥 {ev['titre'].upper()}",
+                value=f"{anim_text}📝 {ev['desc']}{event_link}",
                 inline=False
             )
+            field_count += 1
             
-    embed.set_footer(text="🟢 Panneau synchronisé automatiquement avec le serveur.", icon_url="https://i.imgur.com/8Q5A40b.gif") # Petit gif de radar ou point vert (optionnel)
+    embed.set_footer(text="🟢 Panneau synchronisé automatiquement", icon_url="https://i.imgur.com/8Q5A40b.gif")
     
-    # On met à jour le message d'un coup
-    await msg.edit(content="", embed=embed)
+    await msg.edit(content="", embed=embed, view=None)
