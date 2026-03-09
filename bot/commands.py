@@ -1997,3 +1997,13 @@ def setup(bot: commands.Bot):
             f"`EVENT_MESSAGE_ID = {msg.id}`"
         )
         await interaction.followup.send(instructions, ephemeral=True)
+
+    @bot.tree.command(name="upgrade-db", description="(Admin) Met à jour la BDD pour les Events Discord")
+    async def upgrade_db(interaction: discord.Interaction):
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("ALTER TABLE planning_pro ADD COLUMN event_id BIGINT DEFAULT NULL;")
+                    await interaction.response.send_message("✅ Base de données mise à jour (Colonne event_id ajoutée) !", ephemeral=True)
+                except Exception as e:
+                    await interaction.response.send_message(f"⚠️ Erreur (déjà fait ?) : {e}", ephemeral=True)
