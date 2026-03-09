@@ -1923,6 +1923,19 @@ def setup(bot: commands.Bot):
     # ---------------------------------------
     # /del_creneau (BO)
     # ---------------------------------------
+    async def slot_all_autocomplete(interaction: discord.Interaction, current: str):
+        slots = await database.get_all_future_pro_slots(database.db_pool)
+        choices = []
+        for slot_id, d, heure, est_reserve, titre in slots:
+            status = "🔴 Réservé" if est_reserve else "🟢 Libre"
+            label = f"{d.strftime('%d/%m')} à {heure} - {status}"
+            if titre:
+                label += f" ({titre[:15]})"
+            
+            if current.lower() in label.lower():
+                choices.append(app_commands.Choice(name=label, value=str(slot_id)))
+        return choices[:25]
+
     @bot.tree.command(name="del_creneau", description="(Admin/Lead) Supprime définitivement un créneau du planning")
     @app_commands.default_permissions(manage_messages=True)
     @app_commands.autocomplete(creneau=slot_all_autocomplete)
@@ -1954,20 +1967,6 @@ def setup(bot: commands.Bot):
             
         except ValueError:
             await interaction.response.send_message("❌ Sélection invalide.", ephemeral=True)
-
-    async def slot_all_autocomplete(interaction: discord.Interaction, current: str):
-        slots = await database.get_all_future_pro_slots(database.db_pool)
-        choices = []
-        for slot_id, d, heure, est_reserve, titre in slots:
-            status = "🔴 Réservé" if est_reserve else "🟢 Libre"
-            label = f"{d.strftime('%d/%m')} à {heure} - {status}"
-            # On ajoute un bout du titre si c'est réservé pour s'y retrouver
-            if titre:
-                label += f" ({titre[:15]})"
-            
-            if current.lower() in label.lower():
-                choices.append(app_commands.Choice(name=label, value=str(slot_id)))
-        return choices[:25]
 
     # ---------------------------------------
     # /planning (BO)
