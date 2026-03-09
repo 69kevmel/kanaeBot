@@ -1,6 +1,6 @@
-discord.py>=2.0.0
-aiomysql>=0.0.21
-aiohttp>=3.8.0
-feedparser>=6.0.0
-cryptography>=3.4
-twitchio==2.10.0
+    discord.py>=2.0.0
+    aiomysql>=0.0.21
+    aiohttp>=3.8.0
+    feedparser>=6.0.0
+    cryptography>=3.4
+    twitchio==2.10.0
