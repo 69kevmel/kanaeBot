@@ -719,3 +719,18 @@ async def get_pro_slot_by_id(pool, slot_id):
         async with conn.cursor() as cur:
             await cur.execute("SELECT slot_date, heure, titre FROM planning_pro WHERE id = %s;", (int(slot_id),))
             return await cur.fetchone()
+        
+async def delete_pro_slot(pool, slot_id):
+    """Supprime définitivement un créneau de la base de données."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("DELETE FROM planning_pro WHERE id = %s;", (int(slot_id),))
+
+async def get_all_future_pro_slots(pool):
+    """Récupère tous les créneaux futurs (libres ET réservés) pour l'autocomplétion de suppression."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT id, slot_date, heure, est_reserve, titre FROM planning_pro WHERE slot_date >= CURDATE() ORDER BY slot_date ASC, heure ASC;"
+            )
+            return await cur.fetchall()

@@ -1879,6 +1879,20 @@ def setup(bot: commands.Bot):
         except ValueError:
             await interaction.response.send_message("❌ Sélection invalide.", ephemeral=True)
 
+    async def slot_all_autocomplete(interaction: discord.Interaction, current: str):
+        slots = await database.get_all_future_pro_slots(database.db_pool)
+        choices = []
+        for slot_id, d, heure, est_reserve, titre in slots:
+            status = "🔴 Réservé" if est_reserve else "🟢 Libre"
+            label = f"{d.strftime('%d/%m')} à {heure} - {status}"
+            # On ajoute un bout du titre si c'est réservé pour s'y retrouver
+            if titre:
+                label += f" ({titre[:15]})"
+            
+            if current.lower() in label.lower():
+                choices.append(app_commands.Choice(name=label, value=str(slot_id)))
+        return choices[:25]
+
     # ---------------------------------------
     # /planning (BO)
     # ---------------------------------------
@@ -1921,3 +1935,32 @@ def setup(bot: commands.Bot):
             embed.add_field(name=f"🗓️ {current_day}", value=day_content, inline=False)
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ---------------------------------------
+    # /del_creneau (BO)
+    # ---------------------------------------
+    @bot.tree.command(name="del_creneau", description="(Admin/Lead) Supprime définitivement un créneau du planning")
+    @app_commands.default_permissions(manage_messages=True)
+    @app_commands.autocomplete(creneau=slot_all_autocomplete)
+    async def del_creneau(interaction: discord.Interaction, creneau: str):
+        try:
+            slot_id = int(creneau)
+            
+            # On récupère les infos avant de supprimer pour le message de confirmation
+            slot_info = await database.get_pro_slot_by_id(database.db_pool, slot_id)
+            if not slot_info:
+                await interaction.response.send_message("❌ Ce créneau n'existe pas ou a déjà été supprimé.", ephemeral=True)
+                return
+
+            d, heure, _ = slot_info
+            
+            # On supprime purement et simplement de la BDD
+            await database.delete_pro_slot(database.db_pool, slot_id)
+            
+            await interaction.response.send_message(
+                f"🗑️ C'est fait ! Le créneau du **{d.strftime('%d/%m/%Y')} à {heure}** a été définitivement effacé du planning.", 
+                ephemeral=True
+            )
+            
+        except ValueError:
+            await interaction.response.send_message("❌ Sélection invalide. Utilise la liste déroulante proposée frérot !", ephemeral=True)
