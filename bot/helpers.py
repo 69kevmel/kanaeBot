@@ -148,9 +148,13 @@ async def update_member_prestige_role(member: discord.Member, points: int):
                 if public_channel:
                     announcement = (
                         f"🎉 **ALERTE PRESTIGE !** 🎉\n\n"
-                        f"Félicitations à {member.mention} qui grimpe en grade et devient officiellement : {target_role.mention} 👑\n"
+                        f"Félicitations à {member.mention} qui grimpe en grade et devient officiellement : **{target_role.name}** 👑\n"
                     )
-                    await public_channel.send(announcement)
+                    # Sécurité maximale : on autorise le ping du membre, mais on bloque strictement les rôles
+                    await public_channel.send(
+                        announcement,
+                        allowed_mentions=discord.AllowedMentions(roles=False, users=True)
+                    )
         
         else:
             # --- VÉRIFICATION ANTI-SPAM DESCENTE ---
@@ -172,12 +176,20 @@ async def update_member_prestige_role(member: discord.Member, points: int):
                 
                 if casino_channel:
                     import random
+                    # On utilise .name au lieu de .mention pour éviter le ping des rôles
+                    new_role_name = target_role.name 
+                    
                     sad_messages = [
-                        f"📉 **COUP DUR...** {member.mention} vient de perdre son rang de **{old_role_name}** et redescend au rang de {target_role.mention}. La roue tourne, courage frérot... 🕯️🌿",
-                        f"Aïe... {member.mention} a trop joué avec le feu. Il n'est plus **{old_role_name}** et redevient simple {target_role.mention}. On t'envoie de la force ! 📉💨",
-                        f"La descente est brutale pour {member.mention}. Adieu le grade **{old_role_name}**, retour au rang de {target_role.mention}. On remonte la pente bientôt ? 📉🕯️"
+                        f"📉 **COUP DUR...** {member.mention} vient de perdre son rang de **{old_role_name}** et redescend au rang de **{new_role_name}**. La roue tourne, courage frérot... 🕯️🌿",
+                        f"Aïe... {member.mention} a trop joué avec le feu. Il n'est plus **{old_role_name}** et redevient simple **{new_role_name}**. On t'envoie de la force ! 📉💨",
+                        f"La descente est brutale pour {member.mention}. Adieu le grade **{old_role_name}**, retour au rang de **{new_role_name}**. On remonte la pente bientôt ? 📉🕯️"
                     ]
-                    await casino_channel.send(random.choice(sad_messages))
+                    
+                    # On ajoute explicitement allowed_mentions pour être sûr à 100% qu'aucun rôle n'est notifié
+                    await casino_channel.send(
+                        random.choice(sad_messages), 
+                        allowed_mentions=discord.AllowedMentions(roles=False, users=True)
+                    )
 
     except discord.Forbidden:
         logger.error(f"⛔ [Prestige] Discord me refuse l'accès aux rôles de {member.display_name} (est-il propriétaire ou admin plus haut que moi ?).")
