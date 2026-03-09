@@ -1836,39 +1836,53 @@ def setup(bot: commands.Bot):
             # 🌟 MAGIE DISCORD : On crée l'événement officiel
             try:
                 import re
-                from datetime import datetime, timedelta
+                from datetime import datetime, timedelta, timezone
                 import zoneinfo
                 
-                # On extrait les heures et minutes de "21h30" ou "21:30"
-                match = re.search(r"(\d{1,2})[hH:](\d{2})", heure_str)
+                # 1. Extraction plus souple de l'heure (Accepte "21h30", "21:30" et même "21h")
+                h, m = 0, 0
+                match = re.search(r"(\d{1,2})(?:[hH:](\d{2}))?", heure_str)
                 if match:
-                    h, m = int(match.group(1)), int(match.group(2))
-                    naive_dt = datetime.combine(d, datetime.min.time()).replace(hour=h, minute=m)
+                    h = int(match.group(1))
+                    m = int(match.group(2)) if match.group(2) else 0
                     
-                    # On définit l'heure sur le fuseau français
-                    start_dt = naive_dt.replace(tzinfo=zoneinfo.ZoneInfo("Europe/Paris"))
+                naive_dt = datetime.combine(d, datetime.min.time()).replace(hour=h, minute=m)
+                
+                # 2. Gestion sécurisée du fuseau horaire (si tzdata manque sur ton Docker)
+                try:
+                    tz = zoneinfo.ZoneInfo("Europe/Paris")
+                except Exception:
+                    # Plan B si le serveur hébergeur ne connaît pas l'heure de Paris
+                    tz = timezone(timedelta(hours=1)) 
                     
-                    # Sécurité : Si l'heure est passée, Discord plantera, on force à +5 mins
-                    if start_dt < discord.utils.utcnow():
-                        start_dt = discord.utils.utcnow() + timedelta(minutes=5)
-                        
-                    event = await interaction.guild.create_scheduled_event(
-                        name=titre,
-                        description=f"{description}\n\n🎤 Animé par {interaction.user.display_name}",
-                        start_time=start_dt,
-                        end_time=start_dt + timedelta(hours=2),
-                        entity_type=discord.EntityType.external,
-                        location="Salon Vocal Kanaé 💨",
-                        privacy_level=discord.PrivacyLevel.guild_only
-                    )
-                    event_id = event.id # On sauvegarde l'ID secret !
+                start_dt = naive_dt.replace(tzinfo=tz)
+                
+                # 3. Sécurité : Si l'heure est passée, on force à +5 mins pour éviter le crash Discord
+                if start_dt < discord.utils.utcnow():
+                    start_dt = discord.utils.utcnow() + timedelta(minutes=5)
+                    
+                # 4. Création de l'événement natif
+                event = await interaction.guild.create_scheduled_event(
+                    name=titre[:100], # Sécurité Discord : max 100 caractères
+                    description=f"{description[:800]}\n\n🎤 Animé par {interaction.user.display_name}",
+                    start_time=start_dt,
+                    end_time=start_dt + timedelta(hours=2),
+                    entity_type=discord.EntityType.external,
+                    location="Salon Vocal Kanaé 💨",
+                    privacy_level=discord.PrivacyLevel.guild_only
+                )
+                event_id = event.id # On sauvegarde l'ID secret !
+                
             except Exception as e:
                 logger.error(f"Impossible de créer l'event Discord: {e}")
+                # 🚨 ON ARRÊTE TOUT ET ON PRÉVIENT L'ANIMATEUR SI ÇA PLANTE !
+                await interaction.response.send_message(f"❌ Impossible de créer l'événement Discord. (Raison : `{e}`).\n👉 Le créneau n'a **PAS** été réservé, réessaie !", ephemeral=True)
+                return 
 
-            # On réserve en base de données avec l'event_id
+            # On réserve en base de données avec l'event_id UNIQUEMENT si ça a marché au-dessus
             await database.reserve_pro_slot(database.db_pool, slot_id, interaction.user.id, titre, description, event_id)
             
-            await interaction.response.send_message(f"✅ Créneau réservé pour ton event : **{titre}** ! L'événement officiel a été créé.", ephemeral=True)
+            await interaction.response.send_message(f"✅ Créneau réservé pour ton event : **{titre}** ! L'événement officiel a bien été créé en haut du serveur.", ephemeral=True)
             
             # Annonce public dans le channel staff
             staff_channel = interaction.client.get_channel(config.STAFF_NEWS_REVIEW_CHANNEL_ID)
