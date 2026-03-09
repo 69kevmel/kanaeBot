@@ -486,3 +486,9 @@ async def daily_staff_briefing(bot: discord.Client):
 
         embed = discord.Embed(description="\n".join(lines), color=discord.Color.gold())
         await channel.send(embed=embed)
+
+@tasks.loop(hours=1)
+async def auto_refresh_planning(bot: discord.Client):
+    """Vérifie l'affichage toutes les heures pour supprimer les jours passés."""
+    await bot.wait_until_ready()
+    await helpers.refresh_event_message(bot)

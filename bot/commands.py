@@ -1837,6 +1837,7 @@ def setup(bot: commands.Bot):
             
             # Message éphémère de confirmation pour l'animateur
             await interaction.response.send_message(f"✅ Créneau réservé pour ton event : **{titre}** !", ephemeral=True)
+            await helpers.refresh_event_message(interaction.client)
             
             # L'ANNONCE PUBLIQUE DANS LE SALON STAFF
             if slot_info:
@@ -1867,6 +1868,8 @@ def setup(bot: commands.Bot):
             
             # Message éphémère de confirmation
             await interaction.response.send_message("🗑️ Réservation annulée. Le créneau redevient **Libre** pour tout le monde !", ephemeral=True)
+
+            await helpers.refresh_event_message(interaction.client)
             
             # L'ANNONCE PUBLIQUE DANS LE SALON STAFF
             if slot_info:
@@ -1961,6 +1964,36 @@ def setup(bot: commands.Bot):
                 f"🗑️ C'est fait ! Le créneau du **{d.strftime('%d/%m/%Y')} à {heure}** a été définitivement effacé du planning.", 
                 ephemeral=True
             )
-            
+            await helpers.refresh_event_message(interaction.client)
         except ValueError:
             await interaction.response.send_message("❌ Sélection invalide. Utilise la liste déroulante proposée frérot !", ephemeral=True)
+
+    
+    @bot.tree.command(name="setup-planning", description="(Admin) Crée le message d'affichage public des events")
+    async def setup_planning(interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Admin uniquement.", ephemeral=True)
+            return
+            
+        await interaction.response.send_message("✅ Création du panneau en cours...", ephemeral=True)
+        
+        # On envoie un message public ultra court (personne n'aura le temps de le lire)
+        msg = await interaction.channel.send("⏳ *Génération du panneau...*")
+        
+        # 🌟 LA MAGIE : On injecte les ID directement en mémoire pour ce tour-ci
+        config.EVENT_CHANNEL_ID = interaction.channel.id
+        config.EVENT_MESSAGE_ID = msg.id
+        
+        # On force la mise à jour stylisée à la milliseconde près !
+        from . import helpers # Juste au cas où ce n'est pas déjà importé en haut
+        await helpers.refresh_event_message(interaction.client)
+        
+        # Le bot te donne les instructions en secret
+        instructions = (
+            f"✅ **C'est fait !** Le panneau est déjà magnifique et affiché publiquement.\n\n"
+            f"🚨 **TRÈS IMPORTANT :** Pour que le bot retrouve ce message après son prochain redémarrage, "
+            f"n'oublie surtout pas d'ajouter ces deux lignes dans ton fichier `config.py` :\n\n"
+            f"`EVENT_CHANNEL_ID = {interaction.channel.id}`\n"
+            f"`EVENT_MESSAGE_ID = {msg.id}`"
+        )
+        await interaction.followup.send(instructions, ephemeral=True)

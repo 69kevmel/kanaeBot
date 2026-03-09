@@ -1,4 +1,5 @@
 import logging
+import time
 import discord
 import aiohttp
 
@@ -195,3 +196,67 @@ async def update_member_prestige_role(member: discord.Member, points: int):
         logger.error(f"⛔ [Prestige] Discord me refuse l'accès aux rôles de {member.display_name} (est-il propriétaire ou admin plus haut que moi ?).")
     except Exception as e:
         logger.error(f"❌ [Prestige] Erreur inattendue pour {member.display_name} : {e}")
+
+    
+async def refresh_event_message(bot: discord.Client):
+    """Met à jour le panneau d'affichage public des événements en temps réel."""
+    event_channel_id = getattr(config, "EVENT_CHANNEL_ID", None)
+    event_message_id = getattr(config, "EVENT_MESSAGE_ID", None)
+    
+    if not event_channel_id or not event_message_id:
+        return
+
+    channel = bot.get_channel(event_channel_id)
+    if not channel:
+        return
+        
+    try:
+        msg = await channel.fetch_message(event_message_id)
+    except discord.NotFound:
+        return # Le message a été supprimé
+        
+    events = await database.get_public_events(database.db_pool)
+    
+    # 🕒 Génération du timestamp Discord pour le Temps Réel
+    now_ts = int(time.time())
+    
+    # 🎨 Le design principal ultra stylisé
+    embed = discord.Embed(
+        title="✨ 📅 L'AGENDA OFFICIEL KANAÉ 📅 ✨", 
+        description=(
+            "> *Toutes les soirées, events et animations du cercle en un clin d'œil.* 💨\n"
+            f"> 📡 **Liaison en direct** • Dernière synchro : <t:{now_ts}:T> (<t:{now_ts}:R>)\n"
+            "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
+        ),
+        color=discord.Color.gold()
+    )
+    embed.set_thumbnail(url=bot.user.display_avatar.url)
+    
+    if not events:
+        embed.add_field(
+            name="📭 Écran Radar Vide...",
+            value="> *L'équipe prépare du lourd en coulisses, restez à l'écoute !* 🌿\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬",
+            inline=False
+        )
+    else:
+        jours_fr = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+        
+        for d, heure, anim_id, titre, desc in events:
+            jour_str = f"{jours_fr[d.weekday()]} {d.strftime('%d/%m')}"
+            
+            # Bloc pour chaque événement avec citations et emojis
+            embed.add_field(
+                name=f"🗓️ {jour_str} à {heure} ⏳",
+                value=(
+                    f"🔥 **{titre.upper()}**\n"
+                    f"> 🎤 *Animé par* <@{anim_id}>\n"
+                    f"> 📝 {desc}\n"
+                    "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
+                ),
+                inline=False
+            )
+            
+    embed.set_footer(text="🟢 Panneau synchronisé automatiquement avec le serveur.", icon_url="https://i.imgur.com/8Q5A40b.gif") # Petit gif de radar ou point vert (optionnel)
+    
+    # On met à jour le message d'un coup
+    await msg.edit(content="", embed=embed)

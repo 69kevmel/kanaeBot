@@ -734,3 +734,15 @@ async def get_all_future_pro_slots(pool):
                 "SELECT id, slot_date, heure, est_reserve, titre FROM planning_pro WHERE slot_date >= CURDATE() ORDER BY slot_date ASC, heure ASC;"
             )
             return await cur.fetchall()
+        
+async def get_public_events(pool):
+    """Récupère les événements réservés à venir pour le panneau public."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("""
+                SELECT slot_date, heure, animateur_id, titre, description 
+                FROM planning_pro 
+                WHERE est_reserve = TRUE AND slot_date >= CURDATE() 
+                ORDER BY slot_date ASC, heure ASC;
+            """)
+            return await cur.fetchall()
