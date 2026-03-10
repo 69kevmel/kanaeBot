@@ -2204,3 +2204,255 @@ def setup(bot: commands.Bot):
         
         from . import tasks
         await tasks.trigger_quiz(interaction.client, forced_channel=interaction.channel)
+
+    # ---------------------------------------
+    # /remove_message (Modération)
+    # ---------------------------------------
+    @bot.tree.command(name="remove_message", description="(Modération) Nettoie le chat en supprimant des messages")
+    @app_commands.default_permissions(manage_messages=True)
+    @app_commands.describe(
+        quantite="Le nombre de messages à supprimer (max 100)",
+        membre="Optionnel : Supprime UNIQUEMENT les messages de ce membre"
+    )
+    async def remove_message(interaction: discord.Interaction, quantite: int, membre: discord.Member = None):
+        if quantite < 1 or quantite > 100:
+            await interaction.response.send_message("❌ Tu dois choisir un nombre entre 1 et 100.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        messages_to_delete = []
+        search_limit = 200 if membre else quantite
+        
+        async for msg in interaction.channel.history(limit=search_limit):
+            if membre and msg.author != membre:
+                continue
+            messages_to_delete.append(msg)
+            if len(messages_to_delete) >= quantite:
+                break
+
+        if not messages_to_delete:
+            await interaction.followup.send("📭 Aucun message trouvé à supprimer.", ephemeral=True)
+            return
+
+        try:
+            await interaction.channel.delete_messages(messages_to_delete)
+            cible_str = f" de {membre.mention}" if membre else ""
+            await interaction.followup.send(f"🧹 **{len(messages_to_delete)} messages**{cible_str} ont été balayés avec succès !", ephemeral=True)
+            
+            # Envoi du log au staff
+            mod_channel = interaction.client.get_channel(config.MOD_LOG_CHANNEL_ID)
+            if mod_channel:
+                import discord.utils
+                embed = discord.Embed(
+                    title="🧹 Nettoyage de chat (/remove_message)",
+                    color=discord.Color.orange(),
+                    timestamp=discord.utils.utcnow()
+                )
+                embed.add_field(name="👮 Modérateur", value=interaction.user.mention, inline=True)
+                embed.add_field(name="📍 Salon", value=interaction.channel.mention, inline=True)
+                embed.add_field(name="🗑️ Messages supprimés", value=f"**{len(messages_to_delete)}**", inline=False)
+                if membre:
+                    embed.add_field(name="🎯 Cible visée", value=membre.mention, inline=False)
+                await mod_channel.send(embed=embed)
+                
+        except discord.Forbidden:
+            await interaction.followup.send("❌ Je n'ai pas les permissions pour supprimer ces messages (Mon rôle doit être placé assez haut).", ephemeral=True)
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"❌ Erreur de l'API Discord : {e}\n*(Note: Discord interdit de supprimer des messages vieux de plus de 14 jours avec cette méthode)*", ephemeral=True)
+
+    # ===================================================================
+    # 📩 SYSTÈME DE RELANCE DES INACTIFS (/mp_revient)
+    # ===================================================================
+
+    class RevientRewardView(discord.ui.View):
+        def __init__(self, user_id: int):
+            super().__init__(timeout=None)
+            self.user_id = user_id
+
+        @discord.ui.button(label="🎁 Réclamer mes 700 points !", style=discord.ButtonStyle.success, custom_id="claim_revient_700")
+        async def claim_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user.id != self.user_id:
+                return
+            
+            success = await database.claim_revient_reward(database.db_pool, self.user_id)
+            if not success:
+                await interaction.response.send_message("❌ Petit malin... Tu as déjà récupéré cette récompense !", ephemeral=True)
+                button.disabled = True
+                await interaction.message.edit(view=self)
+                return
+
+            new_total = await database.add_points(database.db_pool, self.user_id, 700)
+            await helpers.update_member_prestige_role(interaction.user, new_total)
+
+            for child in self.children:
+                child.disabled = True
+            button.label = "✅ 700 points ajoutés !"
+            button.style = discord.ButtonStyle.secondary
+            await interaction.response.edit_message(view=self)
+            
+            await interaction.followup.send(f"🎉 Boom ! **700 points** ont été ajoutés à ton compte ! Ton nouveau solde est de **{new_total} points**. Re-bienvenue parmi nous frérot ! 💨")
+
+        @discord.ui.button(label="🛑 Ne plus recevoir de MP", style=discord.ButtonStyle.danger, custom_id="optout_revient")
+        async def optout_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user.id != self.user_id:
+                return
+                
+            await database.opt_out_user(database.db_pool, self.user_id)
+            
+            for child in self.children:
+                child.disabled = True
+            button.label = "✅ Désabonné des alertes"
+            await interaction.response.edit_message(view=self)
+            
+            await interaction.followup.send("C'est noté ! Tu as été retiré de notre liste de diffusion. Tu ne recevras plus d'alertes de Kanaé en MP. 🛑", ephemeral=True)
+
+    async def process_mp_revient_queue(interaction: discord.Interaction, members: list[discord.Member], message_perso: str):
+        """File d'attente qui envoie 1 message toutes les 30s avec gestion des logs et des événements."""
+        logger.info(f"🚀 [Relance] Lancement de la campagne pour {len(members)} membres.")
+        success_count = 0
+        fail_count = 0
+        
+        # --- RÉCUPÉRATION DES ÉVÉNEMENTS ---
+        try:
+            upcoming_events = await database.get_public_events(database.db_pool)
+        except Exception as e:
+            logger.error(f"❌ [Relance] Erreur récupération events : {e}")
+            upcoming_events = []
+            
+        events_text = ""
+        if upcoming_events:
+            events_text = "\n📅 **LES PROCHAINS EVENTS À NE PAS RATER :**\n"
+            for d, heure, anim_id, titre, desc, event_id in upcoming_events[:3]:
+                date_str = d.strftime("%d/%m")
+                titre_safe = titre[:45] + "..." if len(titre) > 45 else titre
+                events_text += f"🔹 **Le {date_str} à {heure}** - {titre_safe}\n"
+        
+        # --- BOUCLE D'ENVOI ---
+        for member in members:
+            logger.info(f"📩 [Relance] Tentative d'envoi à {member.name} ({member.id})...")
+            
+            description = (
+                f"Salut {member.mention} ! Ça fait un moment qu'on ne t'a pas vu passer sur le cercle. 💨\n\n"
+                f"{message_perso}\n"
+                f"{events_text}\n\n"
+                f"🎁 **CADEAU DE RETOUR :**\n"
+                f"Pour fêter tout ça, on t'offre **700 points** pour le Kanaé d'Or ! "
+                f"Clique simplement sur le bouton ci-dessous pour les récupérer et viens nous faire un coucou en vocal ou dans le chat ! 🌿"
+            )
+            
+            if len(description) > 4000:
+                description = description[:4000] + "\n*(...)*"
+
+            embed = discord.Embed(
+                title="🌟 GROSSE MISE À JOUR DE KANAÉ ! 🌟",
+                description=description,
+                color=discord.Color.gold()
+            )
+            if interaction.guild.icon:
+                embed.set_thumbnail(url=interaction.guild.icon.url)
+
+            view = RevientRewardView(member.id)
+            
+            try:
+                await member.send(embed=embed, view=view)
+                await database.log_mp_revient(database.db_pool, member.id)
+                success_count += 1
+                logger.info(f"✅ [Relance] Succès pour {member.name}.")
+            except discord.Forbidden:
+                fail_count += 1
+                logger.warning(f"❌ [Relance] Échec : {member.name} a fermé ses MPs.")
+            except Exception as e:
+                fail_count += 1
+                logger.error(f"❌ [Relance] Erreur critique pour {member.name} : {e}")
+                
+            # SÉCURITÉ ANTI-BAN : Attente de 30 secondes
+            if member != members[-1]:
+                logger.info(f"⏳ [Relance] Pause de 30 secondes pour respecter l'API Discord...")
+                await asyncio.sleep(30)
+            
+        logger.info(f"🏁 [Relance] Campagne terminée. Succès: {success_count} | Échecs: {fail_count}")
+        
+        # --- RAPPORT DE FIN ---
+        mod_channel = interaction.client.get_channel(config.MOD_LOG_CHANNEL_ID)
+        if mod_channel:
+            report_embed = discord.Embed(
+                title="📢 Rapport d'envoi : /mp_revient",
+                description="La campagne de relance est terminée !",
+                color=discord.Color.blue()
+            )
+            report_embed.add_field(name="✅ Réussis (MP Ouverts)", value=str(success_count), inline=True)
+            report_embed.add_field(name="❌ Échoués (MP Fermés)", value=str(fail_count), inline=True)
+            await mod_channel.send(embed=report_embed)
+
+    async def inactive_users_autocomplete(interaction: discord.Interaction, current: str):
+        choices = [
+            app_commands.Choice(name="📢 ENVOYER À TOUT LE MONDE (0 PT À VIE)", value="ALL_VIE"),
+            app_commands.Choice(name="📢 ENVOYER À TOUT LE MONDE (0 PT CE MOIS-CI)", value="ALL_MOIS")
+        ]
+        
+        inactives = await database.get_inactive_users_stats(database.db_pool, "vie")
+        for uid, count, last_sent in inactives:
+            member = interaction.guild.get_member(int(uid))
+            if member and not member.bot:
+                c = count or 0
+                date_str = last_sent.strftime("%d/%m/%y") if last_sent else "Jamais"
+                name_display = f"👤 {member.display_name} | Reçu: {c} fois | Dernier: {date_str}"
+                
+                if current.lower() in name_display.lower():
+                    choices.append(app_commands.Choice(name=name_display[:100], value=str(uid)))
+        return choices[:25]
+
+    @bot.tree.command(name="mp_revient", description="(Admin) Relance les inactifs avec un cadeau de 700 points !")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        cible="Choisis un membre inactif précis ou TOUT LE MONDE",
+        message_perso="Message personnalisé à insérer dans l'annonce"
+    )
+    @app_commands.autocomplete(cible=inactive_users_autocomplete)
+    async def mp_revient(interaction: discord.Interaction, cible: str, message_perso: str = ""):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Admin uniquement.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        target_ids = []
+        
+        if cible == "ALL_VIE":
+            inactives = await database.get_inactive_users_stats(database.db_pool, "vie")
+            target_ids = [uid for uid, _, _ in inactives]
+        elif cible == "ALL_MOIS":
+            inactives = await database.get_inactive_users_stats(database.db_pool, "mois")
+            target_ids = [uid for uid, _, _ in inactives]
+        else:
+            try:
+                target_ids = [int(cible)]
+            except ValueError:
+                await interaction.followup.send("❌ Cible invalide. Utilise la liste !", ephemeral=True)
+                return
+
+        opted_out_ids = await database.get_all_optouts(database.db_pool)
+
+        valid_members = []
+        for uid in target_ids:
+            if uid in opted_out_ids:
+                continue 
+            member = interaction.guild.get_member(uid)
+            if member and not member.bot:
+                valid_members.append(member)
+
+        if not valid_members:
+            await interaction.followup.send("📭 Aucun membre valide trouvé pour cet envoi (ils ont peut-être quitté ou désactivé les MPs).", ephemeral=True)
+            return
+
+        temps_estime = (len(valid_members) * 30) / 60 
+        
+        await interaction.followup.send(
+            f"✅ **La campagne est lancée pour {len(valid_members)} membre(s) !**\n"
+            f"⏳ Un MP partira toutes les 30 secondes pour ne pas alerter l'anti-spam de Discord.\n"
+            f"⏱️ Temps estimé : **{temps_estime:.1f} minutes**.\n"
+            f"Tu recevras un rapport complet dans le salon modérateur quand ce sera fini !", 
+            ephemeral=True
+        )
+
+        interaction.client.loop.create_task(process_mp_revient_queue(interaction, valid_members, message_perso))

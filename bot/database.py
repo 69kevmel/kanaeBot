@@ -232,6 +232,26 @@ async def ensure_tables(pool):
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """
             )
+            # Tables pour le système de relance des inactifs
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS mp_revient_tracking (
+                    user_id BIGINT PRIMARY KEY,
+                    send_count INT DEFAULT 0,
+                    last_sent DATETIME
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            """)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS mp_revient_claims (
+                    user_id BIGINT PRIMARY KEY,
+                    claimed_at DATETIME
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            """)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS mp_optout (
+                    user_id BIGINT PRIMARY KEY,
+                    opted_out_at DATETIME
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            """)
     logger.info("Database tables checked/created")
 
 async def get_user_points(pool, user_id):
@@ -783,3 +803,51 @@ async def get_public_events(pool):
                 ORDER BY slot_date ASC, heure ASC;
             """)
             return await cur.fetchall()
+        
+# --- FONCTIONS POUR LE SYSTÈME DE RELANCE ---
+async def get_inactive_users_stats(pool, categorie="vie"):
+    """Récupère les joueurs à 0 point avec leurs stats de relance."""
+    table = "scores" if categorie == "vie" else "monthly_scores"
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(f"""
+                SELECT s.user_id, t.send_count, t.last_sent 
+                FROM {table} s
+                LEFT JOIN mp_revient_tracking t ON s.user_id = t.user_id
+                WHERE s.points = 0;
+            """)
+            return await cur.fetchall()
+
+async def log_mp_revient(pool, user_id):
+    """Enregistre qu'on vient d'envoyer un MP de relance à ce joueur."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("""
+                INSERT INTO mp_revient_tracking (user_id, send_count, last_sent)
+                VALUES (%s, 1, NOW())
+                ON DUPLICATE KEY UPDATE send_count = send_count + 1, last_sent = NOW();
+            """, (int(user_id),))
+
+async def claim_revient_reward(pool, user_id):
+    """Vérifie et valide la réclamation des 700 points (Anti-Abus)."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT 1 FROM mp_revient_claims WHERE user_id = %s;", (int(user_id),))
+            if await cur.fetchone():
+                return False # Il a déjà réclamé !
+            
+            await cur.execute("INSERT INTO mp_revient_claims (user_id, claimed_at) VALUES (%s, NOW());", (int(user_id),))
+            return True
+
+async def opt_out_user(pool, user_id):
+    """Ajoute un utilisateur à la liste noire des MPs."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("INSERT IGNORE INTO mp_optout (user_id, opted_out_at) VALUES (%s, NOW());", (int(user_id),))
+
+async def get_all_optouts(pool):
+    """Récupère la liste de tous ceux qui ne veulent plus de MP."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT user_id FROM mp_optout;")
+            return {row[0] for row in await cur.fetchall()}
