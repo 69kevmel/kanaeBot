@@ -2075,6 +2075,8 @@ def setup(bot: commands.Bot):
     @bot.tree.command(name="machine420", description="🎰 Tire le bras de la machine et tente le Jackpot 420 !")
     @app_commands.describe(mise="Le nombre de points que tu veux parier")
     async def slots(interaction: discord.Interaction, mise: int):
+        casino_channel = interaction.client.get_channel(1477651520878280914)
+        
         # 1. Sécurités de base
         if mise <= 0:
             await interaction.response.send_message("❌ Tu dois miser au moins 1 point.", ephemeral=True)
@@ -2096,22 +2098,21 @@ def setup(bot: commands.Bot):
 
         # 4. Configuration de la machine
         emojis = ["🍒", "🍋", "🍇", "💨", "🍁"]
-        # Poids (Les chances d'apparition) : 🍒=40%, 🍋=30%, 🍇=15%, 💨=10%, 🍁=5%
         weights = [40, 30, 15, 10, 5]
 
-        # Le message de départ
+        # On envoie le message de départ dans le casino
         embed = discord.Embed(
             title="🎰 MACHINE À SOUS KANAÉ...",
             description=f"💸 **Mise :** `{mise}` points\n\n> ⬛ | ⬛ | ⬛ <\n\n*Les rouleaux se lancent...*",
             color=discord.Color.dark_grey()
         )
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message("🎰 Ta machine tourne ! Va voir le résultat dans le salon Casino 🎰", ephemeral=True)
+        msg = await casino_channel.send(embed=embed)
 
         # 5. L'Animation (Édition du message pour simuler la rotation)
         for i in range(3):
-            await asyncio.sleep(1.0) # On attend 1 seconde entre chaque rouleau
+            await asyncio.sleep(1.0)
             
-            # On génère des symboles temporaires pour l'animation
             t1 = random.choices(emojis, weights=weights)[0]
             t2 = random.choices(emojis, weights=weights)[0]
             
@@ -2120,7 +2121,6 @@ def setup(bot: commands.Bot):
             elif i == 1:
                 desc = f"💸 **Mise :** `{mise}` points\n\n> {t1} | {t2} | 🌀 <\n\n*Plus qu'un...*"
             else:
-                # Le résultat final !
                 r1 = random.choices(emojis, weights=weights)[0]
                 r2 = random.choices(emojis, weights=weights)[0]
                 r3 = random.choices(emojis, weights=weights)[0]
@@ -2128,16 +2128,15 @@ def setup(bot: commands.Bot):
 
             embed.description = desc
             try:
-                await interaction.edit_original_response(embed=embed)
+                await msg.edit(embed=embed)
             except:
-                pass # Si Discord lag, on ignore et on passe à la suite
+                pass
 
         # 6. Calcul des gains
         multiplicateur = 0
         message_fin = ""
         couleur = discord.Color.red()
 
-        # Les combinaisons gagnantes
         if r1 == r2 == r3:
             if r1 == "🍁":
                 multiplicateur = 50
@@ -2160,7 +2159,6 @@ def setup(bot: commands.Bot):
                 message_fin = "🍒 **Petite victoire !** La mise est doublée."
                 couleur = discord.Color.green()
         elif r1 == r2: 
-            # Lot de consolation (Les 2 premiers sont identiques)
             multiplicateur = 0.5
             message_fin = "🤏 *Dommage pour le dernier... On te rend la moitié.*"
             couleur = discord.Color.light_grey()
@@ -2169,28 +2167,23 @@ def setup(bot: commands.Bot):
 
         gain_total = int(mise * multiplicateur)
 
-        # 7. Distribution des gains
         if gain_total > 0:
             await database.add_points(database.db_pool, interaction.user.id, gain_total)
         
-        # On libère le joueur
         active_slots_players.remove(interaction.user.id)
 
-        # 8. Affichage du résultat final
         embed_final = discord.Embed(
             title="🎰 RÉSULTAT DE LA MACHINE",
             description=f"{desc}\n\n{message_fin}\n\n💳 **Bénéfice :** `{gain_total - mise}` points",
             color=couleur
         )
         
-        # Petit rappel des règles en bas
         embed_final.set_footer(text="Gains : 🍁x50 | 💨x10 | 🍇x5 | 🍋x3 | 🍒x2 | 2 identiques = moitié remboursée")
         
-        await interaction.edit_original_response(embed=embed_final)
+        await msg.edit(embed=embed_final)
         
-        # Si le mec a fait péter le jackpot 🍁, le bot fait une annonce publique dans le salon !
         if multiplicateur == 50:
-            await interaction.channel.send(f"🚨 **ALERTE JACKPOT !** 🚨\n<@{interaction.user.id}> vient de braquer le casino avec **3 🍁** et remporte **{gain_total} points** ! 🤑")
+            await casino_channel.send(f"🚨 **ALERTE JACKPOT !** 🚨\n{interaction.user.mention} vient de braquer le casino avec **3 🍁** et remporté **{gain_total} points** ! 🤑")
         
     # ---------------------------------------
     # /quiz (Admin)

@@ -584,7 +584,6 @@ async def trigger_quiz(bot: discord.Client, forced_channel=None):
         description=f"**{q_data['question']}**\n\n*Le premier à cliquer sur la bonne réponse gagne 50 points ! (Attention : -10 pts si tu te trompes !)*",
         color=discord.Color.orange()
     )
-    embed.set_thumbnail(url="https://i.imgur.com/uR1a34G.gif") # Un petit gif stylé (le même que le LG)
     
     view = QuizView(q_data)
     msg = await channel.send(embed=embed, view=view)
