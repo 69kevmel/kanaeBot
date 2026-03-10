@@ -2077,19 +2077,24 @@ def setup(bot: commands.Bot):
     async def slots(interaction: discord.Interaction, mise: int):
         casino_channel = interaction.client.get_channel(1477651520878280914)
         
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except Exception:
+            return
+        
         # 1. Sécurités de base
         if mise <= 0:
-            await interaction.response.send_message("❌ Tu dois miser au moins 1 point.", ephemeral=True)
+            await interaction.followup.send("❌ Tu dois miser au moins 1 point.", ephemeral=True)
             return
             
         if interaction.user.id in active_slots_players:
-            await interaction.response.send_message("❌ Ta machine tourne déjà ! Attends la fin de l'animation.", ephemeral=True)
+            await interaction.followup.send("❌ Ta machine tourne déjà ! Attends la fin de l'animation.", ephemeral=True)
             return
 
         # 2. Vérification du solde
         user_points = await database.get_user_points(database.db_pool, interaction.user.id)
         if user_points < mise:
-            await interaction.response.send_message(f"❌ Fonds insuffisants ! Il te reste **{user_points}** points.", ephemeral=True)
+            await interaction.followup.send(f"❌ Fonds insuffisants ! Il te reste **{user_points}** points.", ephemeral=True)
             return
 
         # 3. DÉDUCTION IMMÉDIATE (La sécurité absolue 🏦)
@@ -2106,7 +2111,7 @@ def setup(bot: commands.Bot):
             description=f"💸 **Mise :** `{mise}` points\n\n> ⬛ | ⬛ | ⬛ <\n\n*Les rouleaux se lancent...*",
             color=discord.Color.dark_grey()
         )
-        await interaction.response.send_message("🎰 Ta machine tourne ! Va voir le résultat dans le salon Casino 🎰", ephemeral=True)
+        await interaction.followup.send("🎰 Ta machine tourne ! Va voir le résultat dans le salon Casino 🎰", ephemeral=True)
         msg = await casino_channel.send(embed=embed)
 
         # 5. L'Animation (Édition du message pour simuler la rotation)
