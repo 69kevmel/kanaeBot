@@ -1339,7 +1339,8 @@ def setup(bot: commands.Bot):
             "   • `/top [catégorie]` : Affiche le classement Mensuel ou le Panthéon à vie.\n"
             "   • `/wakeandbake` : Ta récompense quotidienne gratuite avec multiplicateur 🔥.\n"
             "   • `/bet [mise]` : Tente de doubler tes points au casino.\n"
-            "   • `/douille [mise]` : Lance une roulette russe multijoueur.\n\n"
+            "   • `/douille [mise]` : Lance une roulette russe multijoueur.\n"
+            "   • `/machine420 [mise]` : 🎰 Tire le bras de la machine et tente le Jackpot 420 !\n\n"
             "🌿 **Mini-Jeu Pokéweed**\n"
             "   • `/booster` : Ouvre un paquet de 4 cartes (disponible toutes les 12h).\n"
             "   • `/capture` : Attrape le Pokéweed sauvage qui vient d'apparaître.\n"
@@ -1349,7 +1350,7 @@ def setup(bot: commands.Bot):
             "   • `/link-twitch [pseudo]` : Relie ton compte pour gagner tes points.\n"
             "   • `/mes-reseaux` : Liste de tes comptes sociaux liés à ton profil.\n"
             "   • `/refresh-points` : Récupère manuellement tes récompenses de Follow et de Sub !\n"
-            "   • `/unlink-twitch` : Retire ton compte Twitch actuel.\n\n"
+            "   • `/unlink-twitch` : Retire ton compte Twitch actuel.\n"
             "*(Les commandes admin ne sont pas listées ici 🥷)*"
         )
         await interaction.response.send_message(message, ephemeral=True)
@@ -1826,7 +1827,10 @@ def setup(bot: commands.Bot):
     @app_commands.default_permissions(manage_messages=True)
     @app_commands.autocomplete(creneau=slot_free_autocomplete)
     async def reserver(interaction: discord.Interaction, creneau: str, titre: str, description: str):
-        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except Exception:
+            return
         try:
             slot_id = int(creneau)
             slot_info = await database.get_pro_slot_by_id(database.db_pool, slot_id)
@@ -1903,7 +1907,10 @@ def setup(bot: commands.Bot):
     @app_commands.default_permissions(manage_messages=True)
     @app_commands.autocomplete(creneau=slot_cancel_autocomplete)
     async def annuler_resa(interaction: discord.Interaction, creneau: str):
-        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except Exception:
+            return
         try:
             slot_id = int(creneau)
             slot_info = await database.get_pro_slot_by_id(database.db_pool, slot_id)
@@ -1956,7 +1963,10 @@ def setup(bot: commands.Bot):
     @app_commands.default_permissions(manage_messages=True)
     @app_commands.autocomplete(creneau=slot_all_autocomplete)
     async def del_creneau(interaction: discord.Interaction, creneau: str):
-        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except Exception:
+            return
         try:
             slot_id = int(creneau)
             slot_info = await database.get_pro_slot_by_id(database.db_pool, slot_id)
@@ -2062,7 +2072,7 @@ def setup(bot: commands.Bot):
     # 🎰 MINI-JEU : LA MACHINE À SOUS (SLOTS 420)
     # ===================================================================
 
-    @bot.tree.command(name="slots", description="🎰 Tire le bras de la machine et tente le Jackpot 420 !")
+    @bot.tree.command(name="machine420", description="🎰 Tire le bras de la machine et tente le Jackpot 420 !")
     @app_commands.describe(mise="Le nombre de points que tu veux parier")
     async def slots(interaction: discord.Interaction, mise: int):
         # 1. Sécurités de base
