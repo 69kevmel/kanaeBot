@@ -2085,13 +2085,13 @@ def setup(bot: commands.Bot):
             return
 
         # 2. Vérification du solde
-        user_points = await database.get_points(database.db_pool, interaction.user.id)
+        user_points = await database.get_user_points(database.db_pool, interaction.user.id)
         if user_points < mise:
             await interaction.response.send_message(f"❌ Fonds insuffisants ! Il te reste **{user_points}** points.", ephemeral=True)
             return
 
         # 3. DÉDUCTION IMMÉDIATE (La sécurité absolue 🏦)
-        await database.remove_points(database.db_pool, interaction.user.id, mise)
+        await database.add_points(database.db_pool, interaction.user.id, -mise)
         active_slots_players.add(interaction.user.id)
 
         # 4. Configuration de la machine
