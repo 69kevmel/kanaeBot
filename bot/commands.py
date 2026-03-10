@@ -2274,7 +2274,7 @@ def setup(bot: commands.Bot):
             )
         else:
             logger.error(f"Erreur /remove_message : {error}")
-            
+
     # ===================================================================
     # 📩 SYSTÈME DE RELANCE DES INACTIFS (/mp_revient)
     # ===================================================================
@@ -2322,34 +2322,38 @@ def setup(bot: commands.Bot):
             await interaction.followup.send("C'est noté ! Tu as été retiré de notre liste de diffusion. Tu ne recevras plus d'alertes de Kanaé en MP. 🛑", ephemeral=True)
 
     async def process_mp_revient_queue(interaction: discord.Interaction, members: list[discord.Member], message_perso: str):
-        """File d'attente qui envoie 1 message toutes les 30s avec gestion des logs et des événements."""
         logger.info(f"🚀 [Relance] Lancement de la campagne pour {len(members)} membres.")
         success_count = 0
         fail_count = 0
         
-        # --- RÉCUPÉRATION DES ÉVÉNEMENTS ---
         try:
             upcoming_events = await database.get_public_events(database.db_pool)
         except Exception as e:
             logger.error(f"❌ [Relance] Erreur récupération events : {e}")
             upcoming_events = []
             
-        events_text = ""
+        # 🌟 NOUVEAU : On met le titre dans tous les cas
+        events_text = "\n📅 **LES PROCHAINS EVENTS À NE PAS RATER :**\n"
+        
+        # On garde les events automatiques de la base de données s'il y en a
         if upcoming_events:
-            events_text = "\n📅 **LES PROCHAINS EVENTS À NE PAS RATER :**\n"
             for d, heure, anim_id, titre, desc, event_id in upcoming_events[:3]:
                 date_str = d.strftime("%d/%m")
                 titre_safe = titre[:45] + "..." if len(titre) > 45 else titre
                 events_text += f"🔹 **Le {date_str} à {heure}** - {titre_safe}\n"
+                
+        # 🌟 NOUVEAU : On ajoute tes events fixes à la fin, quoi qu'il arrive !
+        events_text += "🔹 **Le 11/03 à 21h** - Live Mix Enfumé\n"
+        events_text += "🔹 **Le 14/03 à 21h** - Soirée film !\n"
+        events_text += "🌟 *...et pleins d'autres !*\n"
         
-        # --- BOUCLE D'ENVOI ---
         for member in members:
             logger.info(f"📩 [Relance] Tentative d'envoi à {member.name} ({member.id})...")
             
             description = (
                 f"Salut {member.mention} ! Ça fait un moment qu'on ne t'a pas vu passer sur le cercle. 💨\n\n"
                 f"{message_perso}\n"
-                f"{events_text}\n\n"
+                f"{events_text}\n"
                 f"🎁 **CADEAU DE RETOUR :**\n"
                 f"Pour fêter tout ça, on t'offre **700 points** pour le Kanaé d'Or ! "
                 f"Clique simplement sur le bouton ci-dessous pour les récupérer et viens nous faire un coucou en vocal ou dans le chat ! 🌿"
@@ -2380,14 +2384,12 @@ def setup(bot: commands.Bot):
                 fail_count += 1
                 logger.error(f"❌ [Relance] Erreur critique pour {member.name} : {e}")
                 
-            # SÉCURITÉ ANTI-BAN : Attente de 30 secondes
             if member != members[-1]:
                 logger.info(f"⏳ [Relance] Pause de 30 secondes pour respecter l'API Discord...")
                 await asyncio.sleep(30)
             
         logger.info(f"🏁 [Relance] Campagne terminée. Succès: {success_count} | Échecs: {fail_count}")
         
-        # --- RAPPORT DE FIN ---
         mod_channel = interaction.client.get_channel(config.MOD_LOG_CHANNEL_ID)
         if mod_channel:
             report_embed = discord.Embed(
@@ -2430,11 +2432,10 @@ def setup(bot: commands.Bot):
                 
         return choices[:25]
 
-
     @bot.tree.command(name="mp_revient", description="(Admin) Relance des membres en MP avec un cadeau de 700 points !")
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(
-        cible="Choisis un groupe ou cherche un membre précis",
+        cible="Groupe, 1 membre (via la liste), OU mentionne plusieurs joueurs (@A @B)",
         message_perso="Message personnalisé à insérer dans l'annonce"
     )
     @app_commands.autocomplete(cible=inactive_users_autocomplete)
@@ -2443,11 +2444,10 @@ def setup(bot: commands.Bot):
             await interaction.response.send_message("❌ Admin uniquement.", ephemeral=True)
             return
 
-
         await interaction.response.defer(ephemeral=True)
         target_ids = []
         
-        # On garde l'option sécurisée pour relancer les inactifs
+        # Option 1 & 2 : Les groupes de masse
         if cible == "ALL_VIE":
             async with database.db_pool.acquire() as conn:
                 async with conn.cursor() as cur:
@@ -2462,17 +2462,27 @@ def setup(bot: commands.Bot):
                     active_ids = {row[0] for row in await cur.fetchall()}
             target_ids = [m.id for m in interaction.guild.members if not m.bot and m.id not in active_ids]
             
-        # Sinon, ça veut dire que tu as cherché un membre précis !
+        # Option 3 : Joueurs spécifiques (Mentions multiples ou Liste déroulante)
         else:
-            try:
-                target_ids = [int(cible)]
-            except ValueError:
-                await interaction.followup.send("❌ Cible invalide. Utilise la liste !", ephemeral=True)
-                return
+            import re
+            # On utilise une Regex pour aspirer TOUS les @mentions tapés dans la case
+            mentions = re.findall(r'<@!?(\d+)>', cible)
+            
+            if mentions:
+                # S'il a mentionné plusieurs personnes (@Joueur1 @Joueur2)
+                target_ids = [int(m) for m in mentions]
+            else:
+                # Sinon, c'est qu'il a cliqué sur un seul pseudo dans la liste déroulante (ce qui renvoie son ID)
+                try:
+                    target_ids = [int(cible.strip())]
+                except ValueError:
+                    await interaction.followup.send("❌ Cible invalide. Utilise la liste ou mentionne directement des joueurs (@joueur) !", ephemeral=True)
+                    return
 
+        # On enlève les doublons (au cas où tu aurais ping 2 fois la même personne)
+        target_ids = list(set(target_ids))
 
         opted_out_ids = await database.get_all_optouts(database.db_pool)
-
 
         valid_members = []
         for uid in target_ids:
@@ -2482,11 +2492,9 @@ def setup(bot: commands.Bot):
             if member and not member.bot:
                 valid_members.append(member)
 
-
         if not valid_members:
             await interaction.followup.send("📭 Aucun membre valide trouvé pour cet envoi (ils ont peut-être quitté ou désactivé les MPs).", ephemeral=True)
             return
-
 
         temps_estime = (len(valid_members) * 30) / 60 
         
@@ -2497,6 +2505,5 @@ def setup(bot: commands.Bot):
             f"Tu recevras un rapport complet dans le salon modérateur quand ce sera fini !", 
             ephemeral=True
         )
-
 
         interaction.client.loop.create_task(process_mp_revient_queue(interaction, valid_members, message_perso))
