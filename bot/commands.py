@@ -2103,7 +2103,7 @@ def setup(bot: commands.Bot):
 
         # 4. Configuration de la machine
         emojis = ["🍒", "🍋", "🍇", "💨", "🍁"]
-        weights = [40, 30, 15, 10, 5]
+        weights = [48, 32, 12, 6, 2]
 
         # On envoie le message de départ dans le casino
         embed = discord.Embed(
