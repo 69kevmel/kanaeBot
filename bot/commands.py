@@ -2401,26 +2401,40 @@ def setup(bot: commands.Bot):
 
     async def inactive_users_autocomplete(interaction: discord.Interaction, current: str):
         choices = [
-            app_commands.Choice(name="📢 ENVOYER À TOUT LE MONDE (0 PT À VIE)", value="ALL_VIE"),
-            app_commands.Choice(name="📢 ENVOYER À TOUT LE MONDE (0 PT CE MOIS-CI)", value="ALL_MOIS")
+            app_commands.Choice(name="📢 ENVOYER À TOUS CEUX À 0 PT (À VIE)", value="ALL_VIE"),
+            app_commands.Choice(name="📢 ENVOYER À TOUS CEUX À 0 PT (CE MOIS-CI)", value="ALL_MOIS")
         ]
         
-        inactives = await database.get_inactive_users_stats(database.db_pool, "vie")
-        for uid, count, last_sent in inactives:
-            member = interaction.guild.get_member(int(uid))
-            if member and not member.bot:
-                c = count or 0
-                date_str = last_sent.strftime("%d/%m/%y") if last_sent else "Jamais"
-                name_display = f"👤 {member.display_name} | Reçu: {c} fois | Dernier: {date_str}"
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT user_id, send_count, last_sent FROM mp_revient_tracking;")
+                tracking_data = {row[0]: (row[1], row[2]) for row in await cur.fetchall()}
+
+
+        # 🔍 On parcourt tous les membres, même s'ils ont des points !
+        for member in interaction.guild.members:
+            if member.bot:
+                continue
                 
-                if current.lower() in name_display.lower():
-                    choices.append(app_commands.Choice(name=name_display[:100], value=str(uid)))
+            count, last_sent = tracking_data.get(member.id, (0, None))
+            date_str = last_sent.strftime("%d/%m/%y") if last_sent else "Jamais"
+            name_display = f"👤 {member.display_name} | Reçu: {count} fois | Dernier: {date_str}"
+            
+            # La recherche fonctionne sur tout le monde (inactifs et actifs)
+            if current.lower() in name_display.lower():
+                choices.append(app_commands.Choice(name=name_display[:100], value=str(member.id)))
+                
+            # Discord limite l'affichage à 25 choix maximum
+            if len(choices) >= 25:
+                break
+                
         return choices[:25]
 
-    @bot.tree.command(name="mp_revient", description="(Admin) Relance les inactifs avec un cadeau de 700 points !")
+
+    @bot.tree.command(name="mp_revient", description="(Admin) Relance des membres en MP avec un cadeau de 700 points !")
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(
-        cible="Choisis un membre inactif précis ou TOUT LE MONDE",
+        cible="Choisis un groupe ou cherche un membre précis",
         message_perso="Message personnalisé à insérer dans l'annonce"
     )
     @app_commands.autocomplete(cible=inactive_users_autocomplete)
@@ -2429,15 +2443,26 @@ def setup(bot: commands.Bot):
             await interaction.response.send_message("❌ Admin uniquement.", ephemeral=True)
             return
 
+
         await interaction.response.defer(ephemeral=True)
         target_ids = []
         
+        # On garde l'option sécurisée pour relancer les inactifs
         if cible == "ALL_VIE":
-            inactives = await database.get_inactive_users_stats(database.db_pool, "vie")
-            target_ids = [uid for uid, _, _ in inactives]
+            async with database.db_pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute("SELECT user_id FROM scores WHERE points > 0;")
+                    active_ids = {row[0] for row in await cur.fetchall()}
+            target_ids = [m.id for m in interaction.guild.members if not m.bot and m.id not in active_ids]
+            
         elif cible == "ALL_MOIS":
-            inactives = await database.get_inactive_users_stats(database.db_pool, "mois")
-            target_ids = [uid for uid, _, _ in inactives]
+            async with database.db_pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute("SELECT user_id FROM monthly_scores WHERE points > 0;")
+                    active_ids = {row[0] for row in await cur.fetchall()}
+            target_ids = [m.id for m in interaction.guild.members if not m.bot and m.id not in active_ids]
+            
+        # Sinon, ça veut dire que tu as cherché un membre précis !
         else:
             try:
                 target_ids = [int(cible)]
@@ -2445,7 +2470,9 @@ def setup(bot: commands.Bot):
                 await interaction.followup.send("❌ Cible invalide. Utilise la liste !", ephemeral=True)
                 return
 
+
         opted_out_ids = await database.get_all_optouts(database.db_pool)
+
 
         valid_members = []
         for uid in target_ids:
@@ -2455,9 +2482,11 @@ def setup(bot: commands.Bot):
             if member and not member.bot:
                 valid_members.append(member)
 
+
         if not valid_members:
             await interaction.followup.send("📭 Aucun membre valide trouvé pour cet envoi (ils ont peut-être quitté ou désactivé les MPs).", ephemeral=True)
             return
+
 
         temps_estime = (len(valid_members) * 30) / 60 
         
@@ -2468,5 +2497,6 @@ def setup(bot: commands.Bot):
             f"Tu recevras un rapport complet dans le salon modérateur quand ce sera fini !", 
             ephemeral=True
         )
+
 
         interaction.client.loop.create_task(process_mp_revient_queue(interaction, valid_members, message_perso))
