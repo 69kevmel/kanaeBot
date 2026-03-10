@@ -492,3 +492,121 @@ async def auto_refresh_planning(bot: discord.Client):
     """Vérifie l'affichage toutes les heures pour supprimer les jours passés."""
     await bot.wait_until_ready()
     await helpers.refresh_event_message(bot)
+
+class QuizView(discord.ui.View):
+    def __init__(self, question_data):
+        super().__init__(timeout=3600) # Le quiz expire au bout d'1 heure
+        self.q_data = question_data
+        self.answered = False
+        self.wrong_users = set()
+
+        # On crée les 4 boutons avec les options
+        for i, opt in enumerate(question_data["options"]):
+            btn = discord.ui.Button(label=opt, style=discord.ButtonStyle.primary, custom_id=f"quiz_opt_{i}")
+            btn.callback = self.make_callback(i)
+            self.add_item(btn)
+
+    def make_callback(self, index):
+        async def callback(interaction: discord.Interaction):
+            if self.answered:
+                await interaction.response.send_message("⏳ Trop tard, quelqu'un a déjà trouvé la bonne réponse !", ephemeral=True)
+                return
+                
+            if interaction.user.id in self.wrong_users:
+                await interaction.response.send_message("❌ Tu as déjà répondu faux ! Laisse les autres essayer.", ephemeral=True)
+                return
+
+            if index == self.q_data["answer"]:
+                self.answered = True
+                pts_win = 50
+                
+                # 🏆 Il a gagné ! On donne les points
+                await database.add_points(database.db_pool, str(interaction.user.id), pts_win)
+                
+                # On désactive et on colorie les boutons
+                for i, child in enumerate(self.children):
+                    child.disabled = True
+                    if i == self.q_data["answer"]:
+                        child.style = discord.ButtonStyle.success
+                    else:
+                        child.style = discord.ButtonStyle.secondary
+                        
+                embed = interaction.message.embeds[0]
+                embed.color = discord.Color.green()
+                embed.description += f"\n\n🎉 **BINGO !** {interaction.user.mention} a trouvé la bonne réponse et rafle **+{pts_win} points** !"
+                
+                await interaction.response.edit_message(embed=embed, view=self)
+            else:
+                # ❌ Il s'est trompé ! On retire des points
+                self.wrong_users.add(interaction.user.id)
+                pts_loss = 10
+                await database.add_points(database.db_pool, str(interaction.user.id), -pts_loss)
+                await interaction.response.send_message(f"❌ Faux ! C'est pas ça frérot. Tu perds **{pts_loss} points**. Kof Kof...", ephemeral=True)
+                
+        return callback
+
+    async def on_timeout(self):
+        # Si personne ne trouve après 1h, on désactive les boutons
+        if not self.answered and hasattr(self, 'message'):
+            for child in self.children:
+                child.disabled = True
+            try:
+                embed = self.message.embeds[0]
+                embed.color = discord.Color.light_grey()
+                embed.description += "\n\n⏰ *Temps écoulé ! Personne n'a eu la bonne réponse...*"
+                await self.message.edit(embed=embed, view=self)
+            except:
+                pass
+
+
+async def trigger_quiz(bot: discord.Client, forced_channel=None):
+    from .quiz_data import QUIZ_QUESTIONS
+    import random
+    
+    if forced_channel:
+        channel = forced_channel
+    else:
+        # On définit les salons où le bot a le droit de poser ses questions aléatoires
+        # (Pour éviter qu'il spam le salon Règles ou Annonces)
+        possible_channels = [
+            config.BLABLA_CHANNEL_ID,
+            # Tu peux ajouter d'autres salons ici, ex: config.CHANNEL_POKEWEED_ID
+        ]
+        channel = bot.get_channel(random.choice(possible_channels))
+    
+    if not channel:
+        return
+        
+    q_data = random.choice(QUIZ_QUESTIONS)
+    
+    embed = discord.Embed(
+        title=f"🧠 LE QUIZ ENFUMÉ - {q_data.get('category', 'Culture G')}",
+        description=f"**{q_data['question']}**\n\n*Le premier à cliquer sur la bonne réponse gagne 50 points ! (Attention : -10 pts si tu te trompes !)*",
+        color=discord.Color.orange()
+    )
+    embed.set_thumbnail(url="https://i.imgur.com/uR1a34G.gif") # Un petit gif stylé (le même que le LG)
+    
+    view = QuizView(q_data)
+    msg = await channel.send(embed=embed, view=view)
+    view.message = msg # On sauvegarde le message pour le timeout
+
+
+async def random_quiz_loop(bot: discord.Client):
+    """Fait pop un quiz aléatoirement entre 3h et 6h."""
+    await bot.wait_until_ready()
+    logger.info("🧠 Boucle de Quiz démarrée !")
+
+    while True:
+        # Tirage aléatoire entre 3h (10800 sec) et 6h (21600 sec)
+        import random
+        delay = random.randint(3 * 3600, 6 * 3600)
+        logger.info(f"⏳ Prochain Quiz dans {delay // 3600}h et {(delay % 3600)//60}m.")
+        
+        try:
+            await asyncio.sleep(delay)
+            await trigger_quiz(bot)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"❌ Erreur boucle quiz : {e}")
+            await asyncio.sleep(60)
