@@ -2210,19 +2210,21 @@ def setup(bot: commands.Bot):
     # ---------------------------------------
     @bot.tree.command(name="remove_message", description="(Modération) Nettoie le chat en supprimant des messages")
     @app_commands.default_permissions(manage_messages=True)
+    @app_commands.checks.cooldown(1, 60.0, key=lambda i: i.user.id) # ⏳ Limite : 1 fois toutes les 60 secondes par utilisateur
     @app_commands.describe(
-        quantite="Le nombre de messages à supprimer (max 100)",
+        quantite="Le nombre de messages à supprimer (max 10)",
         membre="Optionnel : Supprime UNIQUEMENT les messages de ce membre"
     )
     async def remove_message(interaction: discord.Interaction, quantite: int, membre: discord.Member = None):
-        if quantite < 1 or quantite > 100:
-            await interaction.response.send_message("❌ Tu dois choisir un nombre entre 1 et 100.", ephemeral=True)
+        # 🛑 Limite stricte à 10 messages max
+        if quantite < 1 or quantite > 10:
+            await interaction.response.send_message("❌ Tu dois choisir un nombre entre 1 et 10 pour éviter le flood.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
 
         messages_to_delete = []
-        search_limit = 200 if membre else quantite
+        search_limit = 100 if membre else quantite
         
         async for msg in interaction.channel.history(limit=search_limit):
             if membre and msg.author != membre:
@@ -2261,6 +2263,18 @@ def setup(bot: commands.Bot):
         except discord.HTTPException as e:
             await interaction.followup.send(f"❌ Erreur de l'API Discord : {e}\n*(Note: Discord interdit de supprimer des messages vieux de plus de 14 jours avec cette méthode)*", ephemeral=True)
 
+    # 🛡️ GESTIONNAIRE D'ERREUR DU COOLDOWN
+    @remove_message.error
+    async def remove_message_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.CommandOnCooldown):
+            # Si le mec spam la commande, on l'engueule gentiment avec le temps restant
+            await interaction.response.send_message(
+                f"⏳ Doucement frérot ! Tu dois attendre encore **{error.retry_after:.1f} secondes** avant de pouvoir re-nettoyer.", 
+                ephemeral=True
+            )
+        else:
+            logger.error(f"Erreur /remove_message : {error}")
+            
     # ===================================================================
     # 📩 SYSTÈME DE RELANCE DES INACTIFS (/mp_revient)
     # ===================================================================
