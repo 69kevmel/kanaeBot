@@ -2179,9 +2179,10 @@ def setup(bot: commands.Bot):
 
         embed_final = discord.Embed(
             title="🎰 RÉSULTAT DE LA MACHINE",
-            description=f"{desc}\n\n{message_fin}\n\n💳 **Bénéfice :** `{gain_total - mise}` points",
+            description=f"**{interaction.user.mention}**\n\n{desc}\n\n{message_fin}\n\n💳 **Bénéfice :** `{gain_total - mise}` points",
             color=couleur
         )
+        embed_final.set_thumbnail(url=interaction.user.display_avatar.url)
         
         embed_final.set_footer(text="Gains : 🍁x50 | 💨x10 | 🍇x5 | 🍋x3 | 🍒x2 | 2 identiques = moitié remboursée")
         
