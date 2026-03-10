@@ -2163,9 +2163,9 @@ def setup(bot: commands.Bot):
                 multiplicateur = 2
                 message_fin = "🍒 **Petite victoire !** La mise est doublée."
                 couleur = discord.Color.green()
-        elif r1 == r2: 
+        elif r1 == r2 or r1 == r3 or r2 == r3: 
             multiplicateur = 0.5
-            message_fin = "🤏 *Dommage pour le dernier... On te rend la moitié.*"
+            message_fin = "🤏 *Presque... 2 symboles identiques, on te rend la moitié pour l'effort.*"
             couleur = discord.Color.light_grey()
         else:
             message_fin = "💥 **Perdu !** *La banque encaisse ton don avec le sourire.*"
