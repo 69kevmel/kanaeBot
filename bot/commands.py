@@ -2401,41 +2401,89 @@ def setup(bot: commands.Bot):
             report_embed.add_field(name="❌ Échoués (MP Fermés)", value=str(fail_count), inline=True)
             await mod_channel.send(embed=report_embed)
 
-    async def inactive_users_autocomplete(interaction: discord.Interaction, current: str):
-        choices = [
-            app_commands.Choice(name="📢 ENVOYER À TOUS CEUX À 0 PT (À VIE)", value="ALL_VIE"),
-            app_commands.Choice(name="📢 ENVOYER À TOUS CEUX À 0 PT (CE MOIS-CI)", value="ALL_MOIS")
-        ]
-        
+    # --- NOUVEAU : Fonction de tri ultra puissante ---
+    async def get_sorted_mp_targets(interaction: discord.Interaction):
+        """Récupère tout le serveur et trie selon tes critères stricts."""
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("SELECT user_id, send_count, last_sent FROM mp_revient_tracking;")
                 tracking_data = {row[0]: (row[1], row[2]) for row in await cur.fetchall()}
+                
+                await cur.execute("SELECT user_id, points FROM scores;")
+                scores_data = {row[0]: row[1] for row in await cur.fetchall()}
+                
+                await cur.execute("SELECT user_id FROM mp_optout;")
+                opted_out = {row[0] for row in await cur.fetchall()}
 
-
-        # 🔍 On parcourt tous les membres, même s'ils ont des points !
+        members_with_stats = []
         for member in interaction.guild.members:
-            if member.bot:
-                continue
+            if member.bot or member.id in opted_out:
+                continue # On ignore les bots et ceux sur liste noire
                 
+            pts = scores_data.get(member.id, 0)
             count, last_sent = tracking_data.get(member.id, (0, None))
-            date_str = last_sent.strftime("%d/%m/%y") if last_sent else "Jamais"
-            name_display = f"👤 {member.display_name} | Reçu: {count} fois | Dernier: {date_str}"
+            joined = member.joined_at.timestamp() if member.joined_at else 0
             
-            # La recherche fonctionne sur tout le monde (inactifs et actifs)
-            if current.lower() in name_display.lower():
-                choices.append(app_commands.Choice(name=name_display[:100], value=str(member.id)))
+            members_with_stats.append({
+                'member': member,
+                'pts': pts,
+                'count': count,
+                'joined': joined,
+                'last_sent': last_sent
+            })
+            
+        # 👑 LE TRI MAGIQUE : 1. Points (croissant) -> 2. Nombre de MP reçus (croissant) -> 3. Ancienneté (croissant)
+        members_with_stats.sort(key=lambda x: (x['pts'], x['count'], x['joined']))
+        return members_with_stats
+
+    # --- L'autocomplétion mise à jour ---
+    async def inactive_users_autocomplete(interaction: discord.Interaction, current: str):
+        choices = []
+        current_lower = current.lower()
+        
+        # 1. Options globales
+        global_options = [
+            app_commands.Choice(name="📢 ENVOYER À TOUS CEUX À 0 PT (À VIE)", value="ALL_VIE"),
+            app_commands.Choice(name="📢 ENVOYER À TOUS CEUX À 0 PT (CE MOIS-CI)", value="ALL_MOIS")
+        ]
+        for opt in global_options:
+            if current_lower in opt.name.lower() or current_lower == "":
+                choices.append(opt)
+
+        members_data = await get_sorted_mp_targets(interaction)
+        
+        # 2. 📦 CRÉATION DES GROUPES (Exclusifs de 10 joueurs max)
+        num_groups = (len(members_data) + 9) // 10
+        for i in range(min(num_groups, 10)): # On affiche max 10 groupes pour ne pas bloquer Discord
+            start_idx = i * 10
+            end_idx = min(start_idx + 10, len(members_data))
+            taille = end_idx - start_idx
+            
+            nom_groupe = f"📦 GROUPE {i+1} ({taille} membres prioritaires)"
+            # S'il tape "groupe", on lui affiche les groupes
+            if current_lower in nom_groupe.lower() or "groupe" in current_lower or current_lower == "":
+                choices.append(app_commands.Choice(name=nom_groupe, value=f"GROUP_{i+1}"))
                 
-            # Discord limite l'affichage à 25 choix maximum
+        # 3. 👤 Recherche individuelle 
+        for data in members_data:
             if len(choices) >= 25:
                 break
                 
+            m = data['member']
+            date_str = data['last_sent'].strftime("%d/%m/%y") if data['last_sent'] else "Jamais"
+            name_display = f"👤 {m.display_name} | {data['pts']} pts | Reçu: {data['count']}x | Dernier: {date_str}"
+            
+            # On n'affiche les mecs individuellement QUE s'il commence à taper un nom (pour que ce soit propre)
+            if current_lower in name_display.lower() and current_lower != "" and "groupe" not in current_lower:
+                choices.append(app_commands.Choice(name=name_display[:100], value=str(m.id)))
+                
         return choices[:25]
 
+    # --- La Commande ---
     @bot.tree.command(name="mp_revient", description="(Admin) Relance des membres en MP avec un cadeau de 700 points !")
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(
-        cible="Groupe, 1 membre (via la liste), OU mentionne plusieurs joueurs (@A @B)",
+        cible="Choisis un GROUPE, ou mentionne plusieurs joueurs (@A @B)",
         message_perso="Message personnalisé à insérer dans l'annonce"
     )
     @app_commands.autocomplete(cible=inactive_users_autocomplete)
@@ -2447,8 +2495,20 @@ def setup(bot: commands.Bot):
         await interaction.response.defer(ephemeral=True)
         target_ids = []
         
-        # Option 1 & 2 : Les groupes de masse
-        if cible == "ALL_VIE":
+        # 🌟 GESTION DES GROUPES (GROUP_1, GROUP_2, etc.)
+        if cible.startswith("GROUP_"):
+            group_num = int(cible.split("_")[1])
+            members_data = await get_sorted_mp_targets(interaction)
+            
+            # On découpe la grosse liste pour prendre exactement les 10 mecs de ce groupe
+            start_idx = (group_num - 1) * 10
+            end_idx = start_idx + 10
+            group_members = members_data[start_idx:end_idx]
+            
+            target_ids = [data['member'].id for data in group_members]
+
+        # Options classiques
+        elif cible == "ALL_VIE":
             async with database.db_pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     await cur.execute("SELECT user_id FROM scores WHERE points > 0;")
@@ -2462,26 +2522,23 @@ def setup(bot: commands.Bot):
                     active_ids = {row[0] for row in await cur.fetchall()}
             target_ids = [m.id for m in interaction.guild.members if not m.bot and m.id not in active_ids]
             
-        # Option 3 : Joueurs spécifiques (Mentions multiples ou Liste déroulante)
+        # Mentions manuelles ou pseudo unique
         else:
             import re
-            # On utilise une Regex pour aspirer TOUS les @mentions tapés dans la case
             mentions = re.findall(r'<@!?(\d+)>', cible)
-            
             if mentions:
-                # S'il a mentionné plusieurs personnes (@Joueur1 @Joueur2)
                 target_ids = [int(m) for m in mentions]
             else:
-                # Sinon, c'est qu'il a cliqué sur un seul pseudo dans la liste déroulante (ce qui renvoie son ID)
                 try:
                     target_ids = [int(cible.strip())]
                 except ValueError:
-                    await interaction.followup.send("❌ Cible invalide. Utilise la liste ou mentionne directement des joueurs (@joueur) !", ephemeral=True)
+                    await interaction.followup.send("❌ Cible invalide. Utilise un groupe, la liste, ou mentionne (@joueur) !", ephemeral=True)
                     return
 
-        # On enlève les doublons (au cas où tu aurais ping 2 fois la même personne)
+        # On nettoie les éventuels doublons si tu t'es amusé à ping 2 fois la même personne
         target_ids = list(set(target_ids))
 
+        # On enlève ceux qui ont cliqué sur le bouton rouge "Ne plus recevoir"
         opted_out_ids = await database.get_all_optouts(database.db_pool)
 
         valid_members = []
@@ -2493,7 +2550,7 @@ def setup(bot: commands.Bot):
                 valid_members.append(member)
 
         if not valid_members:
-            await interaction.followup.send("📭 Aucun membre valide trouvé pour cet envoi (ils ont peut-être quitté ou désactivé les MPs).", ephemeral=True)
+            await interaction.followup.send("📭 Aucun membre valide trouvé dans cette cible (ils ont peut-être quitté ou sont sur liste noire).", ephemeral=True)
             return
 
         temps_estime = (len(valid_members) * 30) / 60 
