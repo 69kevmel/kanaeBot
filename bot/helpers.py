@@ -339,7 +339,7 @@ async def refresh_event_message(bot: discord.Client):
                 if len(safe_desc) > 150:
                     safe_desc = safe_desc[:147] + "..."
                 
-                val = f"### {ev['titre'].upper()}\n{anim_text}📝 *{safe_desc}*{event_link}\n\u200b"
+                val = f"--- {ev['titre'].upper()}\n{anim_text}📝 *{safe_desc}*{event_link}\n\u200b"
                 
                 cat_embed.add_field(name=f"📍 {ev['jour_str']} • {ev['heure_str']}", value=val, inline=False)
             
