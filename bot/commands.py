@@ -2523,7 +2523,7 @@ def setup(bot: commands.Bot):
         members_with_stats = []
         for member in interaction.guild.members:
             if member.bot or member.id in opted_out:
-                continue # On ignore les bots et ceux sur liste noire
+                continue
                 
             pts = scores_data.get(member.id, 0)
             count, last_sent = tracking_data.get(member.id, (0, None))
@@ -2537,8 +2537,9 @@ def setup(bot: commands.Bot):
                 'last_sent': last_sent
             })
             
-        # 👑 LE TRI MAGIQUE : 1. Points (croissant) -> 2. Nombre de MP reçus (croissant) -> 3. Ancienneté (croissant)
-        members_with_stats.sort(key=lambda x: (x['pts'], x['count'], x['joined']))
+        # On trie d'abord par ceux qui n'ont JAMAIS reçu de message (count == 0) 
+        # et qui n'ont AUCUN point (pts == 0).
+        members_with_stats.sort(key=lambda x: (x['count'] > 0, x['pts'] > 0, x['joined']))
         return members_with_stats
 
     # --- L'autocomplétion mise à jour ---
@@ -2548,6 +2549,7 @@ def setup(bot: commands.Bot):
         
         # 1. Options globales
         global_options = [
+            app_commands.Choice(name="🚨 PRIORITÉ : 0 PT & 0 MP REÇU", value="PRIO_NEW"), # Nouvelle option
             app_commands.Choice(name="📢 ENVOYER À TOUS CEUX À 0 PT (À VIE)", value="ALL_VIE"),
             app_commands.Choice(name="📢 ENVOYER À TOUS CEUX À 0 PT (CE MOIS-CI)", value="ALL_MOIS")
         ]
@@ -2643,6 +2645,11 @@ def setup(bot: commands.Bot):
             group_members = members_data[start_idx:end_idx]
             
             target_ids = [data['member'].id for data in group_members]
+
+        if cible == "PRIO_NEW":
+            members_data = await get_sorted_mp_targets(interaction)
+            # On ne garde que ceux qui remplissent les deux conditions : 0 pt et 0 message.
+            target_ids = [data['member'].id for data in members_data if data['pts'] == 0 and data['count'] == 0]    
 
         # Options classiques
         elif cible == "ALL_VIE":
