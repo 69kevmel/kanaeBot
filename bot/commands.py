@@ -2307,6 +2307,16 @@ def setup(bot: commands.Bot):
             
             await interaction.followup.send(f"🎉 Boom ! **700 points** ont été ajoutés à ton compte ! Ton nouveau solde est de **{new_total} points**. Re-bienvenue parmi nous frérot ! 💨")
 
+            # 🌟 NOUVEAU : ENVOI DU LOG AU STAFF QUAND IL CLIQUE !
+            mod_channel = interaction.client.get_channel(config.MOD_LOG_CHANNEL_ID)
+            if mod_channel:
+                log_embed = discord.Embed(
+                    title="🎁 Relance réussie !",
+                    description=f"**{interaction.user.mention}** vient de cliquer sur le bouton de relance (`/mp_revient`) !\n\nIl a bien reçu ses **700 points**. *(Nouveau solde : {new_total} pts)*",
+                    color=discord.Color.green()
+                )
+                await mod_channel.send(embed=log_embed)
+
         @discord.ui.button(label="🛑 Ne plus recevoir de MP", style=discord.ButtonStyle.danger, custom_id="optout_revient")
         async def optout_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user.id != self.user_id:
@@ -2348,7 +2358,7 @@ def setup(bot: commands.Bot):
             logger.info(f"📩 [Relance] Tentative d'envoi à {member.name} ({member.id})...")
             
             description = (
-                f"Salut {member.mention} ! Ça fait un moment qu'on ne t'a pas vu passer sur le cercle. 💨\n\n"
+                f"Salut {member.mention} ! Ça fait un moment qu'on ne t'a pas vu passer sur le Kanaé. 💨\n\n"
                 f"{message_perso}\n"
                 f"{events_text}\n"
                 f"🎁 **CADEAU DE RETOUR :**\n"
