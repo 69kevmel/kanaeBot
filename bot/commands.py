@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone, date
 
 logger = logging.getLogger(__name__)
 active_slots_players = set()
+active_jackpot = False  # Sécurité : Un seul jackpot à la fois
 
 async def get_valid_twitch_headers():
     if not config.TWITCH_API_TOKEN or not config.TWITCH_REFRESH_TOKEN:
@@ -480,6 +481,92 @@ class CandidatureModal(discord.ui.Modal, title='Candidature Staff Kanaé'):
             await channel.send(embed=embed)
         else:
             logger.error("❌ Impossible de trouver le salon de recrutement. Vérifie CHANNEL_RECRUTEMENT_ID.")
+
+class JackpotBetModal(discord.ui.Modal, title="Ta mise pour le Gros Pot"):
+    mise_input = discord.ui.TextInput(
+        label="Combien veux-tu miser ? (Min: 10)",
+        placeholder="Ex: 500",
+        min_length=1,
+        max_length=5
+    )
+
+    def __init__(self, parent_view):
+        super().__init__()
+        self.parent_view = parent_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            valeur = int(self.mise_input.value)
+            if valeur < 10:
+                await interaction.response.send_message("❌ La mise minimum est de 10 points !", ephemeral=True)
+                return
+            if valeur > 10000:
+                await interaction.response.send_message("❌ Doucement frérot, mise maximum : 10 000 points !", ephemeral=True)
+                return
+            
+            user_id = str(interaction.user.id)
+            
+            # 🔒 SÉCURITÉ ANTI-RACE CONDITION (Traitement un par un)
+            async with self.parent_view.lock:
+                # 1. Vérification stricte des points (Mois + Vie)
+                p_vie = await database.get_user_points(database.db_pool, user_id)
+                p_mois = await database.get_user_monthly_points(database.db_pool, user_id)
+                solde_jouable = min(p_vie, p_mois)
+
+                if solde_jouable < valeur:
+                    await interaction.response.send_message(f"❌ T'es à sec ! Tu ne peux miser que **{solde_jouable}** max.", ephemeral=True)
+                    return
+
+                # 2. DÉBIT IMMÉDIAT (Pour éviter les fraudes)
+                await database.add_points(database.db_pool, user_id, -valeur)
+                
+                # 3. Ajout au pot (cumulable si le joueur remet de l'argent)
+                current_bet = self.parent_view.bets.get(interaction.user.id, 0)
+                self.parent_view.bets[interaction.user.id] = current_bet + valeur
+
+            await interaction.response.send_message(f"✅ BIM ! Tu viens d'injecter **{valeur} points** dans le pot !", ephemeral=True)
+            
+            # Mise à jour visuelle du message
+            await self.parent_view.update_message(interaction.message)
+
+        except ValueError:
+            await interaction.response.send_message("❌ Entre un nombre valide, pas des lettres frérot.", ephemeral=True)
+
+
+class JackpotView(discord.ui.View):
+    def __init__(self, end_time: int):
+        super().__init__(timeout=None) # Le timeout est géré manuellement
+        self.end_time = end_time
+        self.bets = {} # Format : {user_id (int): total_mise (int)}
+        self.lock = asyncio.Lock() # Cadenas de sécurité
+        
+    @discord.ui.button(label="Miser dans le Pot 💸", style=discord.ButtonStyle.success, custom_id="join_jackpot_btn")
+    async def join_jackpot(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Ouvre la modale pour taper le montant
+        modal = JackpotBetModal(self)
+        await interaction.response.send_modal(modal)
+
+    async def update_message(self, message: discord.Message):
+        total_pot = sum(self.bets.values())
+        
+        # On trie les joueurs par mise (le plus gros parieur en haut)
+        sorted_bets = sorted(self.bets.items(), key=lambda x: x[1], reverse=True)
+        
+        lines = []
+        for uid, amount in sorted_bets:
+            prob = (amount / total_pot) * 100
+            lines.append(f"• <@{uid}> : **{amount} pts** *(Chances: {prob:.1f}%)*")
+        
+        embed = message.embeds[0]
+        embed.description = (
+            f"💰 **POT TOTAL : {total_pot} POINTS**\n"
+            f"⏳ **Tirage :** <t:{self.end_time}:R>\n\n"
+            "**🔥 Parieurs actuels :**\n" + ("\n".join(lines) if lines else "*Le pot est vide, sois le premier !*")
+        )
+        try:
+            await message.edit(embed=embed)
+        except discord.NotFound:
+            pass
 
 def setup(bot: commands.Bot):
     # ---------------------------------------
@@ -2641,3 +2728,106 @@ def setup(bot: commands.Bot):
         # On envoie l'interface de contrôle !
         view = ConfirmCampaignView(interaction, valid_members, message_perso, temps_estime)
         await interaction.followup.send(embed=preview_embed, view=view, ephemeral=True)
+
+    # ---------------------------------------
+    # /jackpot (Le Gros Pot)
+    # ---------------------------------------
+    @bot.tree.command(name="jackpot", description="Lance un pot commun ! Le gagnant rafle TOUTES les mises. 🎰")
+    async def jackpot(interaction: discord.Interaction):
+        global active_jackpot
+        
+        casino_channel_id = 1477651520878280914
+        
+        if interaction.channel_id != casino_channel_id:
+            await interaction.response.send_message(f"❌ Le jackpot, ça se passe exclusivement dans <#{casino_channel_id}> !", ephemeral=True)
+            return
+
+        if active_jackpot:
+            await interaction.response.send_message("❌ Un Jackpot est déjà en cours ! Attends le tirage.", ephemeral=True)
+            return
+
+        # Durée du jackpot : 15 minutes (soit 900 secondes). Modifie ici si tu veux 1h (3600)
+        duree_secondes = 900 
+        end_time = int(datetime.now(timezone.utc).timestamp() + duree_secondes)
+        
+        active_jackpot = True
+        view = JackpotView(end_time)
+        
+        embed = discord.Embed(
+            title="🎰 LE GROS POT DE KANAÉ EST OUVERT 🎰",
+            description=(
+                f"💰 **POT TOTAL : 0 POINTS**\n"
+                f"⏳ **Tirage :** <t:{end_time}:R>\n\n"
+                "**🔥 Parieurs actuels :**\n*Le pot est vide, sois le premier !*"
+            ),
+            color=discord.Color.gold()
+        )
+        embed.set_footer(text="Plus tu mises gros, plus tu as de chances... mais rien n'est garanti ! 💨")
+        
+        await interaction.response.send_message("@here 🚨 **UN NOUVEAU JACKPOT EST LANCÉ !** 🚨", embed=embed, view=view)
+        msg = await interaction.original_response()
+        
+        # ⏳ On attend la fin du chrono !
+        await asyncio.sleep(duree_secondes)
+        
+        # --- FIN DU CHRONO ---
+        active_jackpot = False
+        
+        # On désactive le bouton
+        for child in view.children: 
+            child.disabled = True
+        try:
+            await msg.edit(view=view)
+        except:
+            pass
+
+        # 🛡️ SÉCURITÉ : Remboursement s'il y a moins de 2 joueurs
+        if len(view.bets) < 2:
+            for uid, bet in view.bets.items():
+                await database.add_points(database.db_pool, str(uid), bet)
+            
+            cancel_embed = discord.Embed(
+                title="🛑 JACKPOT ANNULÉ",
+                description="Il n'y avait pas assez de participants (minimum 2).\n💸 **Toutes les mises ont été remboursées.**",
+                color=discord.Color.red()
+            )
+            await interaction.channel.send(embed=cancel_embed)
+            return
+
+        # 🎲 TIRAGE AU SORT PONDÉRÉ
+        participants = list(view.bets.keys())
+        poids = list(view.bets.values())
+        total_pot = sum(poids)
+        
+        # Choix du gagnant en fonction du poids de sa mise
+        gagnant_id = random.choices(participants, weights=poids, k=1)[0]
+        
+        # Créditer le gagnant
+        new_total = await database.add_points(database.db_pool, str(gagnant_id), total_pot)
+        
+        # Vérification du rôle de prestige pour le gagnant
+        guild_member = interaction.guild.get_member(gagnant_id)
+        if guild_member:
+            await helpers.update_member_prestige_role(guild_member, new_total)
+
+        # 🥁 Animation de suspense
+        suspense_msg = await interaction.channel.send("🥁 *Le bot mélange les tickets de tout le monde...*")
+        await asyncio.sleep(2)
+        await suspense_msg.edit(content="🥁 *La main innocente de Kanaé pioche un ticket...*")
+        await asyncio.sleep(2)
+        await suspense_msg.delete()
+
+        # 🎉 Annonce du grand gagnant
+        res_embed = discord.Embed(
+            title="🎊 ET LE GRAND GAGNANT EST... 🎊",
+            description=(
+                f"🏆 **<@{gagnant_id}>** vient de braquer la banque et rafle **{total_pot} points** ! 🤑\n\n"
+                f"📊 *Statistiques du braquage :*\n"
+                f"Il avait misé **{view.bets[gagnant_id]} points**.\n"
+                f"Il avait **{(view.bets[gagnant_id] / total_pot) * 100:.1f}%** de chances de l'emporter."
+            ),
+            color=discord.Color.green()
+        )
+        res_embed.set_thumbnail(url="https://i.imgur.com/8Q5A40b.gif") # Un gif festif/casino si tu veux
+        
+        await interaction.channel.send(content=f"INCROYABLE <@{gagnant_id}> ! 🎉", embed=res_embed)
