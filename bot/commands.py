@@ -2369,11 +2369,11 @@ def setup(bot: commands.Bot):
             logger.info(f"📩 [Relance] Tentative d'envoi à {member.name} ({member.id})...")
             
             description = (
-                f"Salut {member.mention} ! Ça fait un moment qu'on ne t'a pas vu passer sur le Kanaé. 💨\n\n"
+                f"Salut {member.mention} ! Ça fait un moment qu'on ne t'a pas vu passer sur Kanaé. 💨\n\n"
                 f"{message_perso}\n"
                 f"{events_text}\n"
                 f"🎁 **CADEAU DE RETOUR :**\n"
-                f"Pour fêter tout ça, on t'offre **700 points** pour le Kanaé d'Or ! "
+                f"Pour fêter tout ça, on t'offre **700 points** pour **le Kanaé d'Or ! 🪙** "
                 f"Clique simplement sur le bouton ci-dessous pour les récupérer et viens nous faire un coucou en vocal ou dans le chat ! 🌿"
             )
             
@@ -2496,6 +2496,38 @@ def setup(bot: commands.Bot):
                 choices.append(app_commands.Choice(name=name_display[:100], value=str(m.id)))
                 
         return choices[:25]
+    
+    # ===================================================================
+    # VUE DE CONFIRMATION AVANT ENVOI
+    # ===================================================================
+    class ConfirmCampaignView(discord.ui.View):
+        def __init__(self, original_interaction: discord.Interaction, members: list[discord.Member], message_perso: str, temps_estime: float):
+            super().__init__(timeout=300) # Tu as 5 minutes pour confirmer
+            self.original_interaction = original_interaction
+            self.members = members
+            self.message_perso = message_perso
+            self.temps_estime = temps_estime
+
+        @discord.ui.button(label="✅ Confirmer l'envoi", style=discord.ButtonStyle.success)
+        async def confirm_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+            # On grise les boutons
+            for child in self.children:
+                child.disabled = True
+            await interaction.response.edit_message(
+                content=f"🚀 **Campagne lancée !** Envoi en arrière-plan à {len(self.members)} membres (Temps estimé : **{self.temps_estime:.1f} min**). Tu recevras un rapport à la fin !",
+                embed=None, view=self
+            )
+            # 🟢 C'EST SEULEMENT ICI QU'ON LANCE L'ENVOI RÉEL :
+            interaction.client.loop.create_task(process_mp_revient_queue(self.original_interaction, self.members, self.message_perso))
+
+        @discord.ui.button(label="❌ Annuler", style=discord.ButtonStyle.danger)
+        async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+            for child in self.children:
+                child.disabled = True
+            await interaction.response.edit_message(
+                content="🛑 **Campagne annulée.** Aucun message n'a été envoyé.",
+                embed=None, view=self
+            )
 
     # --- La Commande ---
     @bot.tree.command(name="mp_revient", description="(Admin) Relance des membres en MP avec un cadeau de 700 points !")
@@ -2573,12 +2605,39 @@ def setup(bot: commands.Bot):
 
         temps_estime = (len(valid_members) * 30) / 60 
         
-        await interaction.followup.send(
-            f"✅ **La campagne est lancée pour {len(valid_members)} membre(s) !**\n"
-            f"⏳ Un MP partira toutes les 30 secondes pour ne pas alerter l'anti-spam de Discord.\n"
-            f"⏱️ Temps estimé : **{temps_estime:.1f} minutes**.\n"
-            f"Tu recevras un rapport complet dans le salon modérateur quand ce sera fini !", 
-            ephemeral=True
-        )
+        # --- NOUVEAU : Récupération des stats en direct pour la prévisualisation ---
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT user_id, send_count FROM mp_revient_tracking;")
+                tracking_data = {row[0]: row[1] for row in await cur.fetchall()}
+                await cur.execute("SELECT user_id, points FROM scores;")
+                scores_data = {row[0]: row[1] for row in await cur.fetchall()}
 
-        interaction.client.loop.create_task(process_mp_revient_queue(interaction, valid_members, message_perso))
+        # Création de la belle liste pour l'affichage
+        liste_cibles = ""
+        compteur = 0
+        for m in valid_members:
+            pts = scores_data.get(m.id, 0)
+            count = tracking_data.get(m.id, 0)
+            joined = m.joined_at.strftime("%d/%m/%y") if m.joined_at else "Inconnu"
+            ligne = f"• **{m.display_name}** | {pts} pts | Reçu: {count}x | Rejoint le: {joined}\n"
+            
+            # Sécurité : Si le groupe est énorme, on coupe pour ne pas dépasser la limite Discord
+            if len(liste_cibles) + len(ligne) > 1000:
+                liste_cibles += f"*(... et {len(valid_members) - compteur} autres membres)*\n"
+                break
+                
+            liste_cibles += ligne
+            compteur += 1
+
+        apercu_msg = message_perso if message_perso else "(Aucun message personnalisé ajouté)"
+        
+        preview_embed = discord.Embed(
+            title="⚠️ PRÉVISUALISATION DE LA CAMPAGNE ⚠️",
+            description=f"Tu es sur le point d'envoyer un message privé à **{len(valid_members)} membre(s)**.\nTemps estimé : **{temps_estime:.1f} minutes**.\n\n**👥 LISTE DES CIBLES :**\n{liste_cibles}\n**✉️ APERÇU DU MESSAGE :**\n```text\n{apercu_msg}\n```\n*(Les events et le bouton de 700 pts s'ajouteront automatiquement à la fin)*",
+            color=discord.Color.yellow()
+        )
+        
+        # On envoie l'interface de contrôle !
+        view = ConfirmCampaignView(interaction, valid_members, message_perso, temps_estime)
+        await interaction.followup.send(embed=preview_embed, view=view, ephemeral=True)
