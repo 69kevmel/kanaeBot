@@ -2332,20 +2332,17 @@ def setup(bot: commands.Bot):
             logger.error(f"❌ [Relance] Erreur récupération events : {e}")
             upcoming_events = []
             
-        # 🌟 NOUVEAU : On met le titre dans tous les cas
-        events_text = "\n📅 **LES PROCHAINS EVENTS À NE PAS RATER :**\n"
-        
-        # On garde les events automatiques de la base de données s'il y en a
+        # On ne met le titre QUE s'il y a des vrais events dans la base de données
+        events_text = ""
         if upcoming_events:
+            events_text = "\n📅 **LES PROCHAINS EVENTS À NE PAS RATER :**\n"
             for d, heure, anim_id, titre, desc, event_id in upcoming_events[:3]:
                 date_str = d.strftime("%d/%m")
                 titre_safe = titre[:45] + "..." if len(titre) > 45 else titre
                 events_text += f"🔹 **Le {date_str} à {heure}** - {titre_safe}\n"
-                
-        # 🌟 NOUVEAU : On ajoute tes events fixes à la fin, quoi qu'il arrive !
-        events_text += "🔹 **Le 11/03 à 21h** - Live Mix Enfumé\n"
-        events_text += "🔹 **Le 14/03 à 21h** - Soirée film !\n"
-        events_text += "🌟 *...et pleins d'autres !*\n"
+            
+            # On ajoute juste la petite phrase de fin pour donner envie
+            events_text += "🌟 *...et pleins d'autres !*\n"
         
         for member in members:
             logger.info(f"📩 [Relance] Tentative d'envoi à {member.name} ({member.id})...")
