@@ -2322,6 +2322,7 @@ def setup(bot: commands.Bot):
             if interaction.user.id != self.user_id:
                 return
                 
+            # Ajout à la liste noire dans la BDD
             await database.opt_out_user(database.db_pool, self.user_id)
             
             for child in self.children:
@@ -2331,6 +2332,16 @@ def setup(bot: commands.Bot):
             
             await interaction.followup.send("C'est noté ! Tu as été retiré de notre liste de diffusion. Tu ne recevras plus d'alertes de Kanaé en MP. 🛑", ephemeral=True)
 
+            # 🌟 NOUVEAU : ALERTE POUR LE STAFF QUAND IL SE DÉSABONNE !
+            mod_channel = interaction.client.get_channel(config.MOD_LOG_CHANNEL_ID)
+            if mod_channel:
+                log_embed = discord.Embed(
+                    title="🛑 Désabonnement MP",
+                    description=f"**{interaction.user.mention}** vient de demander à ne plus être contacté par le bot (`/mp_revient`).\n\n*Il a été placé sur liste noire et sera automatiquement ignoré lors des prochaines campagnes.*",
+                    color=discord.Color.red()
+                )
+                await mod_channel.send(embed=log_embed)
+                
     async def process_mp_revient_queue(interaction: discord.Interaction, members: list[discord.Member], message_perso: str):
         logger.info(f"🚀 [Relance] Lancement de la campagne pour {len(members)} membres.")
         success_count = 0
