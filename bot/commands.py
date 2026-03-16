@@ -2771,7 +2771,7 @@ def setup(bot: commands.Bot):
         )
         embed.set_footer(text="Plus tu mises gros, plus tu as de chances... mais rien n'est garanti ! 💨")
         
-        await interaction.response.send_message("@here 🚨 **UN NOUVEAU JACKPOT EST LANCÉ !** 🚨", embed=embed, view=view)
+        await interaction.response.send_message("🚨 **UN NOUVEAU JACKPOT EST LANCÉ !** 🚨", embed=embed, view=view)
         msg = await interaction.original_response()
         
         # ⏳ On attend la fin du chrono !

@@ -222,8 +222,8 @@ async def fetch_and_send_news(bot: discord.Client):
         message_content = (
             f"🌿 **Nouvelles fraîches de la journée !** 🌿\n"
             f"**{title}**\n"
-            f"{link}\n\n"
-            f"🗓️ Publié le : {published_date}"
+            f"🗓️ *Publié le : {published_date}*\n\n"
+            f"{link}"
         )
 
         # 🛑 ENVOI AU STAFF AVEC LES BOUTONS DE VALIDATION 🛑
