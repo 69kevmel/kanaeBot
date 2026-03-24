@@ -559,51 +559,109 @@ class QuizView(discord.ui.View):
                 pass
 
 
+# --- AJOUT EN HAUT DE TES FONCTIONS QUIZ ---
+# On prépare notre liste en mémoire pour l'ordre WTF sans répétition
+_questions_disponibles = []
+
 async def trigger_quiz(bot: discord.Client, forced_channel=None):
     from .quiz_data import QUIZ_QUESTIONS
     import random
+    import json
+    import os
+    
+    # Le nom de notre petit fichier post-it
+    STATE_FILE = "quiz_state.json"
     
     if forced_channel:
         channel = forced_channel
     else:
-        # On définit les salons où le bot a le droit de poser ses questions aléatoires
-        # (Pour éviter qu'il spam le salon Règles ou Annonces)
+        # Salons où le bot a le droit de poser ses questions aléatoires
         possible_channels = [
             config.BLABLA_CHANNEL_ID,
-            # Tu peux ajouter d'autres salons ici, ex: config.CHANNEL_POKEWEED_ID
         ]
         channel = bot.get_channel(random.choice(possible_channels))
     
     if not channel:
         return
         
-    q_data = random.choice(QUIZ_QUESTIONS)
+    # --- 1. CHARGEMENT DE L'ÉTAT (LE POST-IT) ---
+    questions_disponibles = []
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r") as f:
+                questions_disponibles = json.load(f)
+        except Exception as e:
+            logger.error(f"Erreur de lecture du fichier quiz: {e}")
+            
+    # --- 2. SI LE POST-IT EST VIDE (Ou premier lancement) ---
+    if not questions_disponibles:
+        # Au lieu de copier toutes les questions, on stocke juste leurs NUMÉROS (de 0 à 149)
+        questions_disponibles = list(range(len(QUIZ_QUESTIONS)))
+        random.shuffle(questions_disponibles) # On mélange les numéros
+        logger.info("🧠 Nouveau cycle de quiz généré et mélangé !")
+        
+    # --- 3. ON TIRE LE NUMÉRO ET ON LE RETIRE DE LA LISTE ---
+    q_index = questions_disponibles.pop()
+    q_data = QUIZ_QUESTIONS[q_index]
     
+    # --- 4. ON SAUVEGARDE LE NOUVEAU POST-IT ---
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump(questions_disponibles, f)
+    except Exception as e:
+        logger.error(f"Erreur de sauvegarde du fichier quiz: {e}")
+    
+    # --- 5. ON ENVOIE LA QUESTION ---
     embed = discord.Embed(
         title=f"🧠 LE QUIZ ENFUMÉ - {q_data.get('category', 'Culture G')}",
         description=f"**{q_data['question']}**\n\n*Le premier à cliquer sur la bonne réponse gagne 50 points ! (Attention : -10 pts si tu te trompes !)*",
         color=discord.Color.orange()
     )
     
+    # Assure-toi que la classe QuizView est bien définie plus haut dans ton fichier !
     view = QuizView(q_data)
     msg = await channel.send(embed=embed, view=view)
     view.message = msg # On sauvegarde le message pour le timeout
 
 
 async def random_quiz_loop(bot: discord.Client):
-    """Fait pop un quiz aléatoirement entre 3h et 6h."""
+    """Fait pop un quiz aléatoirement, mais dort sagement entre 2h et 9h du matin."""
     await bot.wait_until_ready()
     logger.info("🧠 Boucle de Quiz démarrée !")
 
+    # Préparation du fuseau horaire de Paris
+    try:
+        import zoneinfo
+        tz = zoneinfo.ZoneInfo("Europe/Paris")
+    except Exception:
+        from datetime import timezone, timedelta
+        tz = timezone(timedelta(hours=1))
+
     while True:
-        # Tirage aléatoire entre 3h (10800 sec) et 6h (21600 sec)
         import random
+        from datetime import datetime
+        
+        # Tirage aléatoire entre 3h (10800 sec) et 6h (21600 sec)
         delay = random.randint(3 * 3600, 6 * 3600)
         logger.info(f"⏳ Prochain Quiz dans {delay // 3600}h et {(delay % 3600)//60}m.")
         
         try:
             await asyncio.sleep(delay)
+            
+            # --- VÉRIFICATION DE L'HEURE (PAS DE QUIZ ENTRE 2H ET 9H) ---
+            now = datetime.now(tz)
+            if 2 <= now.hour < 9:
+                # On calcule combien de secondes il reste pour atteindre 9h00 pile
+                target = now.replace(hour=9, minute=0, second=0, microsecond=0)
+                sleep_extra = (target - now).total_seconds()
+                logger.info(f"😴 Chut, il est {now.hour}h. Le bot fait une pause de {int(sleep_extra // 60)} minutes et posera sa question à 09h00.")
+                
+                # Le bot attend sagement la fin de la nuit
+                await asyncio.sleep(sleep_extra)
+                
+            # Si on est bon, on envoie la sauce !
             await trigger_quiz(bot)
+            
         except asyncio.CancelledError:
             break
         except Exception as e:
