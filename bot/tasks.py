@@ -508,12 +508,16 @@ class QuizView(discord.ui.View):
 
     def make_callback(self, index):
         async def callback(interaction: discord.Interaction):
+            # ⬅️ 1. ON DEFER TOUT DE SUITE POUR ÉVITER LE TIMEOUT DE 3 SECONDES
+            await interaction.response.defer() 
+            
             if self.answered:
-                await interaction.response.send_message("⏳ Trop tard, quelqu'un a déjà trouvé la bonne réponse !", ephemeral=True)
+                # ⬅️ 2. ON UTILISE followup.send() AU LIEU DE response.send_message()
+                await interaction.followup.send("⏳ Trop tard, quelqu'un a déjà trouvé la bonne réponse !", ephemeral=True)
                 return
                 
             if interaction.user.id in self.wrong_users:
-                await interaction.response.send_message("❌ Tu as déjà répondu faux ! Laisse les autres essayer.", ephemeral=True)
+                await interaction.followup.send("❌ Tu as déjà répondu faux ! Laisse les autres essayer.", ephemeral=True)
                 return
 
             if index == self.q_data["answer"]:
@@ -535,13 +539,14 @@ class QuizView(discord.ui.View):
                 embed.color = discord.Color.green()
                 embed.description += f"\n\n🎉 **BINGO !** {interaction.user.mention} a trouvé la bonne réponse et rafle **+{pts_win} points** !"
                 
-                await interaction.response.edit_message(embed=embed, view=self)
+                # ⬅️ 3. ON UTILISE edit_original_response() CAR ON A DÉJÀ DEFER
+                await interaction.edit_original_response(embed=embed, view=self)
             else:
                 # ❌ Il s'est trompé ! On retire des points
                 self.wrong_users.add(interaction.user.id)
                 pts_loss = 10
                 await database.add_points(database.db_pool, str(interaction.user.id), -pts_loss)
-                await interaction.response.send_message(f"❌ Faux ! C'est pas ça frérot. Tu perds **{pts_loss} points**. Kof Kof...", ephemeral=True)
+                await interaction.followup.send(f"❌ Faux ! C'est pas ça frérot. Tu perds **{pts_loss} points**. Kof Kof...", ephemeral=True)
                 
         return callback
 

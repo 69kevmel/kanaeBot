@@ -2332,7 +2332,6 @@ def setup(bot: commands.Bot):
             # Envoi du log au staff
             mod_channel = interaction.client.get_channel(config.MOD_LOG_CHANNEL_ID)
             if mod_channel:
-                import discord.utils
                 embed = discord.Embed(
                     title="🧹 Nettoyage de chat (/remove_message)",
                     color=discord.Color.orange(),
