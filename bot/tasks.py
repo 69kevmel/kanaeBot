@@ -385,7 +385,7 @@ async def wake_and_bake_reminder(bot: discord.Client):
 async def monthly_winner_announcement(bot: discord.Client):
     now = datetime.now(timezone.utc)
     
-    # S'exécute le 1er de chaque mois, à 16h20 pile
+    # S'exécute le 1er de chaque mois, à 10h00 UTC
     if now.day == 1 and now.hour == 10 and now.minute == 0:
         channel = bot.get_channel(config.HALL_OF_FLAMME_CHANNEL_ID)
         if not channel:
@@ -415,14 +415,33 @@ async def monthly_winner_announcement(bot: discord.Client):
         # Le vainqueur
         winner_id, winner_pts = top_filtered[0]
         winner = guild.get_member(int(winner_id)) or await bot.fetch_user(int(winner_id))
+
+        # --- GESTION DU RÔLE KANAÉ D'OR ---
+        try:
+            # Assure-toi d'avoir ajouté ROLE_KANAE_D_OR_ID dans ton config.py !
+            role_kanae = guild.get_role(config.ROLE_KANAE_D_OR_ID) 
+            if role_kanae:
+                # 1. On retire le rôle à tous ceux qui l'ont actuellement (l'ancien gagnant)
+                for member in guild.members:
+                    if role_kanae in member.roles:
+                        await member.remove_roles(role_kanae, reason="Fin de son règne de Kanaé d'Or")
+                
+                # 2. On donne le rôle au nouveau boss
+                if isinstance(winner, discord.Member):
+                    await winner.add_roles(role_kanae, reason="Nouveau Kanaé d'Or du mois !")
+        except Exception as e:
+            logger.error(f"Erreur lors de l'attribution du rôle Kanaé d'Or : {e}")
+        # ---------------------------------------------
         
-        # Le texte stylé
+        # Le texte stylé avec le salon cliquable !
         msg = (
-            f"🌟 **RÉSULTAT DU CONCOURS DU MOIS** 🌟\n\n"
-            f"Il est maintenant temps de désigner le gagnant du concours 🪙│kanaé･d･or│🪙\n\n"
-            f"Le gagnant est {winner.mention} qui est donc le nouveau 🪙│kanaé･d･or│🪙 du mois avec plus de **{winner_pts} points** ! 🏆\n\n"
-            f"Les points vont être réinitialisés pour le nouveau mois, et donc un nouveau cadeau sera mis en jeu 🎁\n\n"
-            f"La team Kanaé 💚\n\n"
+            f"🔥 **RÉSULTAT DU CONCOURS DU MOIS** 🏆\n\n"
+            f"Merci à tous pour votre participation et votre implication sur Kanaé ! 🌿\n\n"
+            f"Il est maintenant temps de désigner le grand gagnant du concours <#{config.CONCOURS_CHANNEL_ID}> !\n\n"
+            f"**Le grand gagnant est {winner.mention}** qui est donc le nouveau champion du <#{config.CONCOURS_CHANNEL_ID}> du mois avec l'énorme score de **{winner_pts} points** ! 🤯 Pour le féliciter comme il se doit, il rafle le gros lot : une magnifique **Kanaé box d'une valeur de 25€** ! Un pur régal pour le boss du mois ! 🎁📦🔥\n\n"
+            f"***🚨 Attention l'équipe, tous les compteurs sont remis à ZÉRO dès maintenant ! 🚨***\n"
+            f"Ce qui veut dire qu'un nouveau gros cadeau est mis en jeu **à partir de la seconde où vous lisez ce message** ! La course est relancée, c'est le moment de charbonner vos points si vous voulez rafler le prochain butin ! 💨✨\n\n"
+            f"La team Kanaé 💚\n"
             f"<@&{config.ROLE_MEMBRE_ID}>"
         )
         
@@ -431,7 +450,7 @@ async def monthly_winner_announcement(bot: discord.Client):
         
         # Remise à zéro mensuelle
         await database.reset_monthly_scores(database.db_pool)
-        logger.info("Annonce mensuelle envoyée et scores du mois remis à zéro.")
+        logger.info("Annonce mensuelle envoyée, rôle distribué et scores du mois remis à zéro.")
 
 @tasks.loop(minutes=1)
 async def daily_staff_briefing(bot: discord.Client):
