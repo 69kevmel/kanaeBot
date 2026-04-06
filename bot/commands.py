@@ -401,8 +401,7 @@ class DouilleView(discord.ui.View):
 
         if solde_jouable < self.mise:
             await interaction.response.send_message(
-                f"❌ T'es à sec ! Il te faut au moins **{self.mise} points jouables** pour rejoindre.\n"
-                f"*(Rappel: Tu as {monthly_points} pts ce mois-ci et {current_points} pts à vie)*", 
+                f"❌ T'es à sec ! Il te faut au moins **{self.mise} points** pour rejoindre (Solde jouable actuel : **{solde_jouable}**).", 
                 ephemeral=True
             )
             return
@@ -1507,8 +1506,7 @@ def setup(bot: commands.Bot):
 
         if solde_jouable < mise:
             await interaction.response.send_message(
-                f"❌ T'es à sec ! Tu ne peux parier que ce que tu possèdes sur les DEUX compteurs (Maximum jouable: **{solde_jouable}**).\n"
-                f"*(Rappel: tu as **{monthly_points} pts** ce mois-ci et **{current_points} pts** à vie)*.", 
+                f"❌ T'es à sec ! Ton solde jouable actuel est de **{solde_jouable} points**.", 
                 ephemeral=True
             )
             return
@@ -1616,7 +1614,7 @@ def setup(bot: commands.Bot):
 
         if solde_jouable < mise:
             await interaction.response.send_message(
-                f"❌ T'es à sec frérot ! Tu dois parier un montant que tu possèdes sur les DEUX compteurs (Max jouable: **{solde_jouable}**).", 
+                f"❌ T'es à sec frérot ! Ton solde jouable maximum est de **{solde_jouable} points**.", 
                 ephemeral=True
             )
             return
@@ -2178,12 +2176,15 @@ def setup(bot: commands.Bot):
             await interaction.followup.send("❌ Ta machine tourne déjà ! Attends la fin de l'animation.", ephemeral=True)
             return
 
-        # 2. Vérification du solde
-        user_points = await database.get_user_points(database.db_pool, interaction.user.id)
-        if user_points < mise:
-            await interaction.followup.send(f"❌ Fonds insuffisants ! Il te reste **{user_points}** points.", ephemeral=True)
-            return
+        # 2. Vérification du solde jouable (Mois + Vie)
+        current_points = await database.get_user_points(database.db_pool, str(interaction.user.id))
+        monthly_points = await database.get_user_monthly_points(database.db_pool, str(interaction.user.id))
+        solde_jouable = min(current_points, monthly_points)
 
+        if solde_jouable < mise:
+            await interaction.followup.send(f"❌ Fonds insuffisants ! Ton solde jouable est de **{solde_jouable} points**.", ephemeral=True)
+            return
+        
         # 3. DÉDUCTION IMMÉDIATE (La sécurité absolue 🏦)
         await database.add_points(database.db_pool, interaction.user.id, -mise)
         active_slots_players.add(interaction.user.id)
