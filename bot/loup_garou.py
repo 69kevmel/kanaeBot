@@ -177,25 +177,66 @@ class LoupGarouCog(commands.Cog):
         except discord.Forbidden:
             await interaction.channel.send("⚠️ Je n'ai pas la permission de créer le salon secret des loups !")
 
+# --- NOUVEAUTÉ : Envoi du récap complet au MDJ ---
+        recap_lines = ["📜 **RÉCAPITULATIF SECRET DES RÔLES** 📜\n"]
+        for player_id, assigned_role in game.roles.items():
+            member = interaction.guild.get_member(player_id)
+            name = member.display_name if member else f"Joueur introuvable"
+            recap_lines.append(f"• **{name}** ➔ {assigned_role.capitalize()}")
+            
+        recap_msg = "\n".join(recap_lines)
+        recap_msg += "\n\n*Garde ce message précieusement ! C'est à toi d'appeler les rôles spéciaux la nuit.*"
+        
+        try:
+            await game.gm.send(recap_msg)
+        except discord.Forbidden:
+            await interaction.channel.send("⚠️ Impossible d'envoyer le récap au MDJ en MP. Ouvre tes MPs, gros !")
+            
         await interaction.followup.send("✅ **LES RÔLES ONT ÉTÉ DISTRIBUÉS EN SECRET !** 🃏\n*(Regardez vos Messages Privés !)*")
 
     # ---------------------------------------
     # /lg-nuit
     # ---------------------------------------
-    @app_commands.command(name="lg-nuit", description="(MDJ) Annonce que la nuit tombe")
+    @app_commands.command(name="lg-nuit", description="(MDJ) Annonce que la nuit tombe et guide le MDJ")
     async def lg_nuit(self, interaction: discord.Interaction):
         game = self.games.get(interaction.guild_id)
         if not game or game.gm.id != interaction.user.id:
             await interaction.response.send_message("❌ Tu n'es pas le MDJ !", ephemeral=True)
             return
             
+        # 1. Annonce Publique
         embed = discord.Embed(
             title="🌙 LA NUIT TOMBE SUR KANAÉ...",
-            description="**Tout le monde ferme les yeux et se mute en vocal !** 🤫\n\n*(Les loups se réveillent dans leur salon secret, les autres personnages avec pouvoir attendent l'appel du Maître du Jeu).* \n\n💤 *Chuuut...*",
+            description="**Tout le monde ferme les yeux et se mute en vocal !** 🤫\n\n*(Les loups se réveillent dans leur salon secret, les autres personnages avec pouvoir attendent l'appel du Maître du Jeu en MP).* \n\n💤 *Chuuut...*",
             color=discord.Color.dark_blue()
         )
-        embed.set_image(url="https://i.imgur.com/uR1a34G.gif") # Un petit gif d'ambiance loup-garou
+        embed.set_image(url="https://i.imgur.com/uR1a34G.gif")
         await interaction.response.send_message(embed=embed)
+
+        # 2. Guide privé pour le MDJ en fonction des rôles encore en vie
+        alive_roles = [game.roles.get(pid, "").lower() for pid in game.alive]
+        
+        guide_lines = ["🌙 **GUIDE DE LA NUIT (POUR LE MDJ)** 🌙\n"]
+        guide_lines.append(f"👥 **Survivants :** {len(game.alive)} joueurs.\n")
+        
+        if "voleur" in alive_roles:
+            guide_lines.append("1️⃣ **Le Voleur :** Appelle-le (Uniquement la Nuit 1) pour voir s'il échange sa carte.")
+        if "cupidon" in alive_roles:
+            guide_lines.append("2️⃣ **Cupidon :** Appelle-le (Uniquement la Nuit 1) pour lier les amoureux en MP.")
+        if "voyante" in alive_roles:
+            guide_lines.append("3️⃣ **La Voyante :** Demande-lui en MP qui elle veut sonder et donne-lui son rôle.")
+        
+        guide_lines.append("🐺 **Les Loups-Garous :** Regarde leur salon secret `#tanière-des-loups-🤫` pour voir qui ils décident de bouffer.")
+        
+        if "sorcière" in alive_roles or "sorciere" in alive_roles:
+            guide_lines.append("🧪 **La Sorcière :** Dis-lui en MP qui a été mangé par les loups. Demande-lui si elle veut utiliser sa potion de Vie ou de Mort.")
+            
+        guide_lines.append("\n*Une fois que tous les rôles ont joué, tape `/lg-jour` sur le serveur !*")
+        
+        try:
+            await game.gm.send("\n".join(guide_lines))
+        except discord.Forbidden:
+            pass
 
     # ---------------------------------------
     # /lg-jour
@@ -207,13 +248,13 @@ class LoupGarouCog(commands.Cog):
             await interaction.response.send_message("❌ Tu n'es pas le MDJ !", ephemeral=True)
             return
 
+        # 1. Annonce publique
         embed = discord.Embed(
             title="☀️ LE SOLEIL SE LÈVE !",
-            description="**Le village se réveille...** Tout le monde peut ouvrir les yeux et rallumer son micro ! 🐓\nMais y a-t-il eu des morts cette nuit ?",
+            description="**Le village se réveille...** Tout le monde peut ouvrir les yeux et rallumer son micro ! 🐓\n\n🗣️ **PHASE DE DÉBAT :** Les vivants ont quelques minutes pour confronter leurs alibis et s'embrouiller. Ensuite, le MDJ passera au vote !",
             color=discord.Color.gold()
         )
         
-        # Le Dashboard des Vivants et Morts
         vivants = "\n".join([f"🟢 <@{pid}>" for pid in game.alive]) if game.alive else "Plus personne..."
         morts = "\n".join([f"💀 ~~{m['member'].display_name}~~ *(Était : {m['role']})*" for m in game.dead]) if game.dead else "Personne n'est mort (pour l'instant)."
 
@@ -221,6 +262,12 @@ class LoupGarouCog(commands.Cog):
         embed.add_field(name="🪦 Cimetière", value=morts, inline=True)
 
         await interaction.response.send_message(embed=embed)
+
+        # 2. Petit rappel en MP pour le MDJ
+        try:
+            await game.gm.send("☀️ **GUIDE DU JOUR :**\nLaisse-les débattre. Quand l'heure a sonné, fais-les voter. \n👉 S'il y a des morts (loups, sorcière, ou vote du village), utilise la commande `/lg-kill` sur eux.\n👉 Une fois le vote terminé, relance `/lg-nuit` !")
+        except discord.Forbidden:
+            pass
 
     # ---------------------------------------
     # /lg-kill
