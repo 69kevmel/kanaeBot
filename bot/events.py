@@ -272,11 +272,14 @@ def setup(bot: commands.Bot):
                 label="🌿 Montre ta batte", style=discord.ButtonStyle.link,
                 url=f"https://discord.com/channels/{member.guild.id}/{config.CHANNEL_MONTRE_TA_BATTE_ID}"
             ))
+            view.add_item(discord.ui.Button(
+                label="🔔 Rôles et Notifs", style=discord.ButtonStyle.link,
+                url=f"https://discord.com/channels/{member.guild.id}/{config.REACTION_ROLE_CHANNEL_ID}"
+            ))
             # DM découpé en 2 messages pour respecter la limite Discord de 2000 chars (E2)
             msg_part1 = (
-                f"🌿 Yo {member.name} ! Bienvenue dans le cercle **{member.guild.name}**.\n\n"
-                "Ici, ça chill, ça partage, et ça kiffe. **0 pression**. 😎\n"
-                "Que tu sois là pour montrer ta dernière **batte** 🌿, ton **matos** 🔥, ou juste pour papoter 💬, **t'es chez toi**.\n\n"
+                f"🌿 Yo {member.name} ! Bienvenue chez Kanaé ! (enfin fais comme chez toi) 😎\n\n"
+                "Que tu sois là pour montrer ta dernière **batte** 🌿, ton **matos** 🔥, ou juste papoter avec Kanaé et la commu' !\n\n"
                 "Avant de te lancer, check les règles 📜 et **présente-toi** 🙋 (Montre qui t'es, en fait).\n\n"
                 "**(👻 Discret ? Si tu veux changer ton pseudo, clique droit sur ton profil et choisis 'Changer le pseudo')**\n\n"
                 "🏆 **LE KANAÉ D'OR (Notre grand concours) :**\n"
@@ -296,9 +299,11 @@ def setup(bot: commands.Bot):
                 "💜 **Réseaux & Points gratuits :**\n"
                 "   ➡️ **/link-twitch** {pseudo} – Follow/Sub Twitch = points bonus 🎁\n"
                 "   ➡️ **/refresh-points** – Récupère tes récompenses Twitch 🔄\n\n"
-                f"🎭 **CHOISIS TON CAMP & ACTIVE TES ALERTES :**\n"
-                f"Passe dans <#{config.REACTION_ROLE_CHANNEL_ID}> pour choisir **Team Weed** 🥦 ou **Team Shit** 🍫, et configure tes notifications ! 💨\n\n"
-                "Bonne fumette et bienvenue dans la famille ! 🌿🔥"
+                f"🔔 **RÔLES ET NOTIFICATIONS :**\n"
+                f"Passe dans <#{config.REACTION_ROLE_CHANNEL_ID}> pour :\n"
+                f"• Choisir ta **Team** : Weed 🥦 | Shit 🍫 | CBD 🌱 | Edibles 🍪\n"
+                f"• T'abonner aux **alertes** : Lives 🎥 | Instagram 📸 | Reviews 📚 | Concours 🎁 | Kanaé d'Or 🏆 | Events 🎉\n\n"
+                "Je te souhaite une bonne fumette parmi nous ! 🌿🔥"
             )
 
             await helpers.safe_send_dm(member, msg_part1)
