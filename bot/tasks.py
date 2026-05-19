@@ -76,7 +76,7 @@ async def weekly_recap(bot: discord.Client):
         lines.append("*(Tu veux voler la première place et rafler le cadeau ? Clique sur le bouton en bas pour voir comment booster tes points !)* 👇\n")
         lines.append("Restez chill, partagez la vibe. Kanaé représente ! 🌿🛋️🌈")
 
-        msg = "<@&1504951602438733914>\n" + "\n".join(lines)
+        msg = f"<@&{config.NOTIF_CONCOURS_ROLE_ID}>\n" + "\n".join(lines)
         
         # On attache ta vue avec le bouton
         view = ConcoursHelpView()
@@ -141,7 +141,7 @@ class NewsApprovalView(discord.ui.View):
         channel = interaction.client.get_channel(config.NEWS_CHANNEL_ID)
         if channel:
             # On envoie la news aux joueurs
-            await channel.send(f"<@&1504951839685345290>\n{self.news_content}")
+            await channel.send(f"<@&{config.NOTIF_REVIEWS_ROLE_ID}>\n{self.news_content}")
             
             # On désactive les boutons et on met à jour le message staff
             for child in self.children:
@@ -435,7 +435,7 @@ async def monthly_winner_announcement(bot: discord.Client):
         
         # Le texte stylé avec le salon cliquable !
         msg = (
-            f"<@&1504951978826928229>\n"
+            f"<@&{config.NOTIF_KANAE_D_OR_ROLE_ID}>\n"
             f"🔥 **RÉSULTAT DU CONCOURS DU MOIS** 🏆\n\n"
             f"Merci à tous pour votre participation et votre implication sur Kanaé ! 🌿\n\n"
             f"Il est maintenant temps de désigner le grand gagnant du concours <#{config.CONCOURS_CHANNEL_ID}> !\n\n"

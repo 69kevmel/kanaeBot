@@ -48,6 +48,14 @@ ROLE_KANAE_D_OR_ID = 1374079094974709781  # Empereur de Kanaé
 ROLE_MEMBRE_ID = 1372330440458899588  # Remplace par le vrai ID du rôle
 EXCLUDED_ROLE_ID = 1372330929133064253
 
+# --- Notification Roles ---
+NOTIF_LIVES_ROLE_ID = 1504951420208812032  # 🔴 Notifications Lives
+NOTIF_CONCOURS_ROLE_ID = 1504951602438733914  # 🎁 Notifications Concours
+NOTIF_REVIEWS_ROLE_ID = 1504951839685345290  # 🌿 Notifications Reviews
+NOTIF_INSTAGRAM_ROLE_ID = 1504951782898667540  # 📸 Notifications Instagram
+NOTIF_EVENTS_ROLE_ID = 1504951888792129567  # 📅 Notifications Events
+NOTIF_KANAE_D_OR_ROLE_ID = 1504951978826928229  # 👑 Notifications Kanaé d'Or
+
 RSS_FEEDS = [
     'https://www.newsweed.fr/feed/',
     'https://lelabdubonheur.fr/blog/rss/latest-posts',
@@ -83,13 +91,25 @@ else:
     MYSQLDATABASE = os.getenv('MYSQLDATABASE', 'kanaebot')
 
 
-# --- Reaction roles (weed/shit)
+# --- Reaction roles (team)
 REACTION_ROLE_CHANNEL_ID = 1432728685353500913  # ← ton salon cible
 WEED_ROLE_ID = 1432725093582377032       # ← remplace par l'ID du rôle WEED
 SHIT_ROLE_ID = 1432724461676789841       # ← remplace par l'ID du rôle SHIT
+CBD_ROLE_ID = 1506270850037448814        # CBD loveur
+EDIBLES_ROLE_ID = 1506271097803243571    # Edibles loveur
 
 # Emojis utilisés (unicode)
 EMOJI_WEED = "🥦"
 EMOJI_SHIT = "🍫"
+EMOJI_CBD = "💜"
+EMOJI_EDIBLES = "🍪"
+
+# Emojis pour les notifications
+EMOJI_NOTIF_LIVES = "🎥"
+EMOJI_NOTIF_INSTAGRAM = "📸"
+EMOJI_NOTIF_REVIEWS = "📚"
+EMOJI_NOTIF_CONCOURS = "🎁"
+EMOJI_NOTIF_KANAE_D_OR = "🏆"
+EMOJI_NOTIF_EVENTS = "🎉"
 
 REACTION_ROLE_MESSAGE_ID = 1432733041566027907

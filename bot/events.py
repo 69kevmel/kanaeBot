@@ -504,10 +504,30 @@ def setup(bot: commands.Bot):
 
         emoji = payload.emoji.name
         role_id = None
+        
+        # Campus (Team)
         if emoji == config.EMOJI_WEED:
             role_id = config.WEED_ROLE_ID
         elif emoji == config.EMOJI_SHIT:
             role_id = config.SHIT_ROLE_ID
+        elif emoji == config.EMOJI_CBD:
+            role_id = config.CBD_ROLE_ID
+        elif emoji == config.EMOJI_EDIBLES:
+            role_id = config.EDIBLES_ROLE_ID
+        # Alertes Médias
+        elif emoji == config.EMOJI_NOTIF_LIVES:
+            role_id = config.NOTIF_LIVES_ROLE_ID
+        elif emoji == config.EMOJI_NOTIF_INSTAGRAM:
+            role_id = config.NOTIF_INSTAGRAM_ROLE_ID
+        # Rendez-vous Commu
+        elif emoji == config.EMOJI_NOTIF_REVIEWS:
+            role_id = config.NOTIF_REVIEWS_ROLE_ID
+        elif emoji == config.EMOJI_NOTIF_CONCOURS:
+            role_id = config.NOTIF_CONCOURS_ROLE_ID
+        elif emoji == config.EMOJI_NOTIF_KANAE_D_OR:
+            role_id = config.NOTIF_KANAE_D_OR_ROLE_ID
+        elif emoji == config.EMOJI_NOTIF_EVENTS:
+            role_id = config.NOTIF_EVENTS_ROLE_ID
         else:
             return
 
@@ -518,7 +538,7 @@ def setup(bot: commands.Bot):
         # Ajoute le rôle si pas déjà présent
         if role not in member.roles:
             try:
-                await member.add_roles(role, reason="Reaction role add (weed/shit)")
+                await member.add_roles(role, reason="Reaction role add (team/notif)")
             except discord.HTTPException:
                 pass
 
@@ -538,10 +558,30 @@ def setup(bot: commands.Bot):
 
         emoji = payload.emoji.name
         role_id = None
+        
+        # Campus (Team)
         if emoji == config.EMOJI_WEED:
             role_id = config.WEED_ROLE_ID
         elif emoji == config.EMOJI_SHIT:
             role_id = config.SHIT_ROLE_ID
+        elif emoji == config.EMOJI_CBD:
+            role_id = config.CBD_ROLE_ID
+        elif emoji == config.EMOJI_EDIBLES:
+            role_id = config.EDIBLES_ROLE_ID
+        # Alertes Médias
+        elif emoji == config.EMOJI_NOTIF_LIVES:
+            role_id = config.NOTIF_LIVES_ROLE_ID
+        elif emoji == config.EMOJI_NOTIF_INSTAGRAM:
+            role_id = config.NOTIF_INSTAGRAM_ROLE_ID
+        # Rendez-vous Commu
+        elif emoji == config.EMOJI_NOTIF_REVIEWS:
+            role_id = config.NOTIF_REVIEWS_ROLE_ID
+        elif emoji == config.EMOJI_NOTIF_CONCOURS:
+            role_id = config.NOTIF_CONCOURS_ROLE_ID
+        elif emoji == config.EMOJI_NOTIF_KANAE_D_OR:
+            role_id = config.NOTIF_KANAE_D_OR_ROLE_ID
+        elif emoji == config.EMOJI_NOTIF_EVENTS:
+            role_id = config.NOTIF_EVENTS_ROLE_ID
         else:
             return
 
@@ -552,6 +592,6 @@ def setup(bot: commands.Bot):
         # Retire le rôle s'il est présent
         if role in member.roles:
             try:
-                await member.remove_roles(role, reason="Reaction role remove (weed/shit)")
+                await member.remove_roles(role, reason="Reaction role remove (team/notif)")
             except discord.HTTPException:
                 pass
