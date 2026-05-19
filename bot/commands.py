@@ -1712,82 +1712,6 @@ def setup(bot: commands.Bot):
             logger.exception("Erreur dans /spawn : %s", e)
             await interaction.followup.send(f"❌ Une erreur est survenue : {e}", ephemeral=True)
 
-    @bot.tree.command(name="vibe-setup", description="(Admin) Publie le message de rôles (weed/shit) et pose les réactions")
-    async def vibe_setup(interaction: discord.Interaction):
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Admin uniquement.", ephemeral=True)
-            return
-
-        channel = bot.get_channel(config.REACTION_ROLE_CHANNEL_ID)
-        if channel is None:
-            await interaction.response.send_message("❌ Salon introuvable (vérifie REACTION_ROLE_CHANNEL_ID).", ephemeral=True)
-            return
-
-        guild = interaction.guild
-        weed_role = guild.get_role(config.WEED_ROLE_ID)
-        shit_role = guild.get_role(config.SHIT_ROLE_ID)
-        cbd_role = guild.get_role(config.CBD_ROLE_ID)
-        edibles_role = guild.get_role(config.EDIBLES_ROLE_ID)
-        notif_lives_role = guild.get_role(config.NOTIF_LIVES_ROLE_ID)
-        notif_instagram_role = guild.get_role(config.NOTIF_INSTAGRAM_ROLE_ID)
-        notif_reviews_role = guild.get_role(config.NOTIF_REVIEWS_ROLE_ID)
-        notif_concours_role = guild.get_role(config.NOTIF_CONCOURS_ROLE_ID)
-        notif_kanae_d_or_role = guild.get_role(config.NOTIF_KANAE_D_OR_ROLE_ID)
-        notif_events_role = guild.get_role(config.NOTIF_EVENTS_ROLE_ID)
-        
-        if not all([weed_role, shit_role, cbd_role, edibles_role, notif_lives_role, 
-                   notif_instagram_role, notif_reviews_role, notif_concours_role, 
-                   notif_kanae_d_or_role, notif_events_role]):
-            await interaction.response.send_message("❌ Un ou plusieurs rôle(s) introuvable(s). Vérifie les IDs dans config.py", ephemeral=True)
-            return
-
-        # Le message affiché
-        lines = [
-            "🔔 **Bienvenue dans rôles･et･notifs !** Personnalise ton expérience sur le serveur. Choisis ton camp et active tes alertes pour ne rater aucun banger de Kanaé.",
-            "",
-            "💨 **CHOISIS TON CAMP**",
-            f"{config.EMOJI_WEED} Team WEED ➔ {weed_role.mention} (La sainte fleur avant tout)",
-            f"{config.EMOJI_SHIT} Team SHIT ➔ {shit_role.mention} (Le bon popo bien lourd)",
-            f"{config.EMOJI_CBD} Team CBD ➔ {cbd_role.mention} (Le chill et la détente sans le high)",
-            f"{config.EMOJI_EDIBLES} Team EDIBLES ➔ {edibles_role.mention} (Pour les space-cakes et la gourmandise)",
-            "",
-            "📡 **ALERTES MÉDIAS**",
-            f"{config.EMOJI_NOTIF_LIVES} Notifications Lives ➔ {notif_lives_role.mention} (Pour pop-corn direct sur Twitch)",
-            f"{config.EMOJI_NOTIF_INSTAGRAM} Notifications Instagram ➔ {notif_instagram_role.mention} (Pour le lifestyle et les réels)",
-            "",
-            "📦 **RENDEZ-VOUS COMMU**",
-            f"{config.EMOJI_NOTIF_REVIEWS} Notifications Reviews ➔ {notif_reviews_role.mention} (Dès qu'un test weed/coffee sort dans la Kanathèque)",
-            f"{config.EMOJI_NOTIF_CONCOURS} Notifications Koncours ➔ {notif_concours_role.mention} (Pour les giveaways de la semaine)",
-            f"{config.EMOJI_NOTIF_KANAE_D_OR} Notifications Kanaé d'Or ➔ {notif_kanae_d_or_role.mention} (Suis l'élection du boss du mois)",
-            f"{config.EMOJI_NOTIF_EVENTS} Notifications Events ➔ {notif_events_role.mention} (Soirées gaming, débats et soirées vocales)",
-            "",
-            "👇 **Comment faire ?**",
-            "Clique sur les réactions juste en dessous pour t'attribuer les rôles de ton choix. Retire ta réaction pour enlever le rôle à tout moment !",
-        ]
-        await interaction.response.defer(ephemeral=True)
-        message = await channel.send("\n".join(lines))
-
-        # Ajoute toutes les réactions
-        emojis_to_add = [
-            config.EMOJI_WEED, config.EMOJI_SHIT, config.EMOJI_CBD, config.EMOJI_EDIBLES,
-            config.EMOJI_NOTIF_LIVES, config.EMOJI_NOTIF_INSTAGRAM,
-            config.EMOJI_NOTIF_REVIEWS, config.EMOJI_NOTIF_CONCOURS,
-            config.EMOJI_NOTIF_KANAE_D_OR, config.EMOJI_NOTIF_EVENTS
-        ]
-        for emoji in emojis_to_add:
-            try:
-                await message.add_reaction(emoji)
-            except Exception:
-                pass
-
-        # Sauvegarde runtime + feedback
-        from . import state
-        state.weed_shit_message_id = message.id
-        await interaction.followup.send(
-            f"✅ Reaction roles prêts dans {channel.mention}.\nMessage ID: `{message.id}`",
-            ephemeral=True
-        )
-
     # ---------------------------------------
     # /updaterole
     # ---------------------------------------
@@ -1806,7 +1730,7 @@ def setup(bot: commands.Bot):
         from . import state
         message_id = config.REACTION_ROLE_MESSAGE_ID or state.weed_shit_message_id
         if not message_id:
-            await interaction.response.send_message("❌ Message ID introuvable. Utilise `/vibe-setup` d'abord.", ephemeral=True)
+            await interaction.response.send_message("❌ Message ID introuvable. Vérifie REACTION_ROLE_MESSAGE_ID dans config.py", ephemeral=True)
             return
 
         try:
@@ -1835,26 +1759,70 @@ def setup(bot: commands.Bot):
 
         # Le message affiché (identique à /vibe-setup)
         lines = [
-            "🔔 **Bienvenue dans rôles･et･notifs !** Personnalise ton expérience sur le serveur. Choisis ton camp et active tes alertes pour ne rater aucun banger de Kanaé.",
+            "🔔 **Bienvenue dans rôles･et･notifs !**",
             "",
-            "💨 **CHOISIS TON CAMP**",
-            f"{config.EMOJI_WEED} Team WEED ➔ {weed_role.mention} (La sainte fleur avant tout)",
-            f"{config.EMOJI_SHIT} Team SHIT ➔ {shit_role.mention} (Le bon popo bien lourd)",
-            f"{config.EMOJI_CBD} Team CBD ➔ {cbd_role.mention} (Le chill et la détente sans le high)",
-            f"{config.EMOJI_EDIBLES} Team EDIBLES ➔ {edibles_role.mention} (Pour les space-cakes et la gourmandise)",
             "",
-            "📡 **ALERTES MÉDIAS**",
-            f"{config.EMOJI_NOTIF_LIVES} Notifications Lives ➔ {notif_lives_role.mention} (Pour pop-corn direct sur Twitch)",
-            f"{config.EMOJI_NOTIF_INSTAGRAM} Notifications Instagram ➔ {notif_instagram_role.mention} (Pour le lifestyle et les réels)",
             "",
-            "📦 **RENDEZ-VOUS COMMU**",
-            f"{config.EMOJI_NOTIF_REVIEWS} Notifications Reviews ➔ {notif_reviews_role.mention} (Dès qu'un test weed/coffee sort dans la Kanathèque)",
-            f"{config.EMOJI_NOTIF_CONCOURS} Notifications Koncours ➔ {notif_concours_role.mention} (Pour les giveaways de la semaine)",
-            f"{config.EMOJI_NOTIF_KANAE_D_OR} Notifications Kanaé d'Or ➔ {notif_kanae_d_or_role.mention} (Suis l'élection du boss du mois)",
-            f"{config.EMOJI_NOTIF_EVENTS} Notifications Events ➔ {notif_events_role.mention} (Soirées gaming, débats et soirées vocales)",
+            "Personnalise ton expérience sur le serveur. Choisis ton camp et active tes alertes pour ne rater aucun banger de Kanaé.",
+            "",
+            "",
+            "",
+            "",
+            "💨 ` CHOISIS TON CAMP `",
+            "",
+            "",
+            "",
+            f"🌿 **Team WEED** ➔ `{weed_role.mention}` *(La sainte fleur avant tout)*",
+            "",
+            f"🍫 **Team SHIT** ➔ `{shit_role.mention}` *(Le bon teuteu)*",
+            "",
+            f"🌱 **Team CBD** ➔ `{cbd_role.mention}` *(Le chill et la détente sans le high)*",
+            "",
+            f"🍪 **Team EDIBLES** ➔ `{edibles_role.mention}` *(Pour les space-cakes et la gourmandise)*",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "📡 ` ALERTES MÉDIAS `",
+            "",
+            "",
+            "",
+            f"🎥 **Notifications Lives** ➔ `{notif_lives_role.mention}` (Pour pop direct sur Twitch)",
+            "",
+            f"📸 **Notifications Instagram** ➔ `{notif_instagram_role.mention}` (Pour le lifestyle et les réels)",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "📦 ` RENDEZ-VOUS COMMU `",
+            "",
+            "",
+            "",
+            f"📚 **Notifications Reviews** ➔ `{notif_reviews_role.mention}` (Dès qu'un test weed/coffee sort dans la Kanathèque)",
+            "",
+            f"🎁 **Notifications Koncours** ➔ `{notif_concours_role.mention}` (Pour les giveaways de la semaine)",
+            "",
+            f"🏆 **Notifications Kanaé d'Or** ➔ `{notif_kanae_d_or_role.mention}` (Suis l'élection du boss du mois)",
+            "",
+            f"🎉 **Notifications Events** ➔ `{notif_events_role.mention}` (Soirées gaming, débats et soirées vocales)",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "---",
+            "",
+            "",
             "",
             "👇 **Comment faire ?**",
-            "Clique sur les réactions juste en dessous pour t'attribuer les rôles de ton choix. Retire ta réaction pour enlever le rôle à tout moment !",
+            "",
+            "",
+            "",
+            "👉 **Clique sur les réactions** juste en dessous pour t'attribuer les rôles de ton choix.",
+            "",
+            "❌ *Retire ta réaction pour enlever le rôle à tout moment !*",
         ]
         
         await interaction.response.defer(ephemeral=True)
