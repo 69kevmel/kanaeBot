@@ -27,9 +27,9 @@ class WelcomeSuiteView(discord.ui.View):
             "• `/wakeandbake` : Ton cadeau quotidien (à faire tous les jours pour ton bonus !).\n"
             "• `/booster` : Ouvre un paquet de cartes Pokéweed (1 fois toutes les 12h).\n"
             "• `/bet` & `/douille` : Le coin casino pour miser tes points.\n"
-            "• `/help-commandes` : Pour voir tout le reste de mes capacités !\n\n"
-            f"🎭 **CHOISIS TON CAMP :**\n"
-            f"Passe faire un tour dans <#{config.REACTION_ROLE_CHANNEL_ID}> pour afficher tes préférences (**Team Weed**, **Team Shit** ou les deux !) et débloquer ton rôle exclusif. 💨\n\n"
+             "• `/help-commandes` : Pour voir tout le reste de mes capacités !\n\n"
+             f"🎭 **CHOISIS TON CAMP & ACTIVE TES ALERTES :**\n"
+             f"Passe faire un tour dans <#{config.REACTION_ROLE_CHANNEL_ID}> pour afficher tes préférences (**Team Weed**, **Team Shit** ou les deux !) et tes notifications ! 💨\n\n"
             f"📜 **Dernier truc :** N'oublie pas de jeter un œil aux règles dans <#{config.CHANNEL_REGLES_ID}> pour que tout se passe bien. Bonne fumette ! 💨"
         )
         await interaction.response.send_message(suite_text, ephemeral=True)
@@ -296,8 +296,8 @@ def setup(bot: commands.Bot):
                 "💜 **Réseaux & Points gratuits :**\n"
                 "   ➡️ **/link-twitch** {pseudo} – Follow/Sub Twitch = points bonus 🎁\n"
                 "   ➡️ **/refresh-points** – Récupère tes récompenses Twitch 🔄\n\n"
-                f"🎭 **CHOISIS TON CAMP :**\n"
-                f"Passe dans <#{config.REACTION_ROLE_CHANNEL_ID}> pour choisir **Team Weed** 🥦 ou **Team Shit** 🍫 et débloquer ton rôle exclusif. 💨\n\n"
+                f"🎭 **CHOISIS TON CAMP & ACTIVE TES ALERTES :**\n"
+                f"Passe dans <#{config.REACTION_ROLE_CHANNEL_ID}> pour choisir **Team Weed** 🥦 ou **Team Shit** 🍫, et configure tes notifications ! 💨\n\n"
                 "Bonne fumette et bienvenue dans la famille ! 🌿🔥"
             )
 

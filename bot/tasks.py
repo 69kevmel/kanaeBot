@@ -141,7 +141,7 @@ class NewsApprovalView(discord.ui.View):
         channel = interaction.client.get_channel(config.NEWS_CHANNEL_ID)
         if channel:
             # On envoie la news aux joueurs
-            await channel.send(f"<@&{config.NOTIF_REVIEWS_ROLE_ID}>\n{self.news_content}")
+            await channel.send(self.news_content)
             
             # On désactive les boutons et on met à jour le message staff
             for child in self.children:
