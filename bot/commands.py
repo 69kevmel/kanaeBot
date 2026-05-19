@@ -16,51 +16,68 @@ logger = logging.getLogger(__name__)
 active_slots_players = set()
 active_jackpot = False  # Sécurité : Un seul jackpot à la fois
 
+# Verrou global pour éviter les rafraîchissements de token simultanés (C1 + E5)
+_twitch_refresh_lock = asyncio.Lock()
+
 async def get_valid_twitch_headers():
     if not config.TWITCH_API_TOKEN or not config.TWITCH_REFRESH_TOKEN:
         return None
-        
-    async with aiohttp.ClientSession() as session:
+
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
         # 1. On teste si le token actuel est valide
         validate_url = "https://id.twitch.tv/oauth2/validate"
         headers_test = {"Authorization": f"OAuth {config.TWITCH_API_TOKEN}"}
-        
+
         async with session.get(validate_url, headers=headers_test) as resp:
-            if resp.status == 401: # ❌ Expiré !
-                logger.info("🔄 Token Twitch expiré ! Rafraîchissement automatique en cours...")
-                
-                token_url = "https://id.twitch.tv/oauth2/token"
-                data = {
-                    "client_id": config.TWITCH_CLIENT_ID,
-                    "client_secret": config.TWITCH_CLIENT_SECRET,
-                    "grant_type": "refresh_token",
-                    "refresh_token": config.TWITCH_REFRESH_TOKEN
-                }
-                
-                async with session.post(token_url, data=data) as refresh_resp:
-                    if refresh_resp.status == 200:
-                        js = await refresh_resp.json()
-                        config.TWITCH_API_TOKEN = js["access_token"]
-                        config.TWITCH_REFRESH_TOKEN = js["refresh_token"]
-                        
-                        # On met à jour le fichier .env en dur pour sauvegarder
-                        try:
-                            with open(".env", "r") as f:
-                                lines = f.readlines()
-                            with open(".env", "w") as f:
-                                for line in lines:
-                                    if line.startswith("TWITCH_API_TOKEN="):
-                                        f.write(f"TWITCH_API_TOKEN={config.TWITCH_API_TOKEN}\n")
-                                    elif line.startswith("TWITCH_REFRESH_TOKEN="):
-                                        f.write(f"TWITCH_REFRESH_TOKEN={config.TWITCH_REFRESH_TOKEN}\n")
-                                    else:
-                                        f.write(line)
-                            logger.info("✅ Nouveau token Twitch généré et sauvegardé !")
-                        except Exception as e:
-                            logger.error(f"❌ Erreur d'écriture du .env : {e}")
-                    else:
-                        logger.error("❌ Echec critique du rafraichissement Twitch.")
-                        return None
+            if resp.status == 401:  # ❌ Expiré !
+                # Le verrou empêche deux rafraîchissements simultanés (C1)
+                async with _twitch_refresh_lock:
+                    # Double-check : un autre appel concurrent a peut-être déjà rafraîchi
+                    async with session.get(validate_url, headers={"Authorization": f"OAuth {config.TWITCH_API_TOKEN}"}) as recheck:
+                        if recheck.status != 401:
+                            # Le token a déjà été rafraîchi par une autre coroutine, on l'utilise
+                            return {
+                                "Client-ID": config.TWITCH_CLIENT_ID,
+                                "Authorization": f"Bearer {config.TWITCH_API_TOKEN}"
+                            }
+
+                    logger.info("🔄 Token Twitch expiré ! Rafraîchissement automatique en cours...")
+                    token_url = "https://id.twitch.tv/oauth2/token"
+                    data = {
+                        "client_id": config.TWITCH_CLIENT_ID,
+                        "client_secret": config.TWITCH_CLIENT_SECRET,
+                        "grant_type": "refresh_token",
+                        "refresh_token": config.TWITCH_REFRESH_TOKEN
+                    }
+
+                    async with session.post(token_url, data=data) as refresh_resp:
+                        if refresh_resp.status == 200:
+                            js = await refresh_resp.json()
+                            config.TWITCH_API_TOKEN = js["access_token"]
+                            config.TWITCH_REFRESH_TOKEN = js["refresh_token"]
+
+                            # Écriture atomique : on écrit dans un fichier temporaire puis on renomme (E5)
+                            try:
+                                env_path = ".env"
+                                tmp_path = ".env.tmp"
+                                if os.path.exists(env_path):
+                                    with open(env_path, "r") as f:
+                                        lines = f.readlines()
+                                    with open(tmp_path, "w") as f:
+                                        for line in lines:
+                                            if line.startswith("TWITCH_API_TOKEN="):
+                                                f.write(f"TWITCH_API_TOKEN={config.TWITCH_API_TOKEN}\n")
+                                            elif line.startswith("TWITCH_REFRESH_TOKEN="):
+                                                f.write(f"TWITCH_REFRESH_TOKEN={config.TWITCH_REFRESH_TOKEN}\n")
+                                            else:
+                                                f.write(line)
+                                    os.replace(tmp_path, env_path)  # Opération atomique
+                                logger.info("✅ Nouveau token Twitch généré et sauvegardé !")
+                            except Exception as e:
+                                logger.error(f"❌ Erreur d'écriture du .env : {e}")
+                        else:
+                            logger.error("❌ Echec critique du rafraichissement Twitch.")
+                            return None
 
     # On retourne les bons headers prêts à l'emploi
     return {
@@ -203,7 +220,7 @@ class LivePreviewView(discord.ui.View):
         # On envoie dans le salon des annonces
         channel = self.bot.get_channel(config.CHANNEL_ANNONCES_ID)
         if channel:
-            await channel.send(self.content_to_send)
+            await channel.send(f"<@&1504951420208812032>\n{self.content_to_send}")
             
         # On désactive les boutons
         for child in self.children:
@@ -346,7 +363,8 @@ class LiveModal(discord.ui.Modal, title='Annonce ton Live Twitch !'):
         label='Lien de ta chaîne Twitch (entier)',
         placeholder='Ex: https://twitch.tv/kanae420',
         style=discord.TextStyle.short,
-        required=True
+        required=True,
+        max_length=100
     )
 
     def __init__(self, count: int):
@@ -354,26 +372,34 @@ class LiveModal(discord.ui.Modal, title='Annonce ton Live Twitch !'):
         self.count = count # On passe le compte actuel pour l'afficher
 
     async def on_submit(self, interaction: discord.Interaction):
-        
+        # Validation : le lien doit être une URL Twitch valide (E3)
+        lien_clean = self.lien.value.strip()
+        if not re.fullmatch(r"https?://(?:www\.)?twitch\.tv/[a-zA-Z0-9_]{4,25}/?", lien_clean):
+            await interaction.response.send_message(
+                "❌ Le lien fourni n'est pas une URL Twitch valide (ex: `https://twitch.tv/tonpseudo`).",
+                ephemeral=True
+            )
+            return
+
         message_content = (
             f"🔴 **{self.titre.value.upper()}** 📣\n\n"
             f"{interaction.user.mention} lance un live sur **{self.jeu.value}**.\n"
             f"**Viens en fumer un long, t'es le/la bienvenu(e) 🚬!\n\n**"
             f"_(Aucun point kanaé ne sera distribué durant ce live)_\n\n"
-            f"{self.lien.value}\n\n"
+            f"{lien_clean}\n\n"
         )
-        
-        # Message de prévisualisation
+
+        # Message de prévisualisation (garanti < 2000 chars grâce aux max_length des champs)
         preview_text = (
             f"👀 **PRÉVISUALISATION DE TON ANNONCE**\n"
             f"*Il te reste {2 - self.count} annonce(s) possible(s) cette semaine après celle-ci.*\n"
             f"----------------------------------\n\n"
             f"{message_content}"
         )
-        
+
         # On envoie la prévisu avec les boutons Confirmer/Annuler
         view = LivePreviewView(interaction.client, interaction.user, message_content)
-        await interaction.response.send_message(preview_text, view=view, ephemeral=True)            
+        await interaction.response.send_message(preview_text, view=view, ephemeral=True)
 
 class DouilleView(discord.ui.View):
     def __init__(self, host_id: int, mise: int, end_time: int):
@@ -576,7 +602,8 @@ def setup(bot: commands.Bot):
     async def hey(interaction: discord.Interaction, message: str):
         await interaction.response.defer(ephemeral=True)
         try:
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=20)  # Timeout 20s (M5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 headers = {
                     "Authorization": f"Bearer {config.MISTRAL_API_KEY}",
                     "Content-Type": "application/json",
@@ -595,6 +622,8 @@ def setup(bot: commands.Bot):
                         response_text = data['choices'][0]['message']['content']
                     else:
                         response_text = f"Yo, Mistral a répondu {resp.status}. J'sais pas ce qu'il veut là frérot."
+        except asyncio.TimeoutError:
+            response_text = "Yo, Mistral met trop de temps à répondre, réessaye dans un instant."
         except Exception as e:
             logger.error("Mistral API error: %s", e)
             response_text = "Yo, j'crois que Mistral est en PLS là, réessaye plus tard."
@@ -674,12 +703,17 @@ def setup(bot: commands.Bot):
     ])
     async def top(interaction: discord.Interaction, categorie: app_commands.Choice[str]):
         is_monthly = (categorie.value == "mois")
-        table = "monthly_scores" if is_monthly else "scores"
+        # Whitelist explicite pour éviter le pattern f-string SQL (M1)
+        _TABLE_MAP = {"mois": "monthly_scores", "vie": "scores"}
+        table = _TABLE_MAP.get(categorie.value, "scores")
         header = "🏆 Classement du Mois : Kanaé d'Or 🏆" if is_monthly else "🌟 Classement à Vie : Panthéon 🌟"
-        
+
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(f"SELECT user_id, points FROM {table} ORDER BY points DESC;")
+                if table == "monthly_scores":
+                    await cur.execute("SELECT user_id, points FROM monthly_scores ORDER BY points DESC;")
+                else:
+                    await cur.execute("SELECT user_id, points FROM scores ORDER BY points DESC;")
                 rows = await cur.fetchall()
 
         filtered = []
@@ -898,37 +932,50 @@ def setup(bot: commands.Bot):
             await interaction.response.send_message("❌ Aucun Pokéweed à capturer maintenant...", ephemeral=True)
             return
 
-        winner_id = getattr(state, "capture_winner", None)
-        if winner_id:
-            await interaction.response.send_message("❌ Trop tard, il a déjà été capturé !", ephemeral=True)
+        # Le verrou garantit qu'un seul joueur passe à la fois (C2 — race condition)
+        if state.capture_lock.locked():
+            winner_id = getattr(state, "capture_winner", None)
+            if winner_id:
+                await interaction.response.send_message("❌ Trop tard, il a déjà été capturé !", ephemeral=True)
+            else:
+                await interaction.response.send_message("⏳ Capture déjà en cours, une seconde...", ephemeral=True)
             return
 
-        pokeweed = state.current_spawn
-        user_id = interaction.user.id
-        
-        pid = pokeweed[0]
-        name = pokeweed[1]
-        cap_pts = pokeweed[3]
+        async with state.capture_lock:
+            # Double-check DANS le verrou : quelqu'un a peut-être capturé entre le check et l'acquire
+            if state.capture_winner:
+                await interaction.response.send_message("❌ Trop tard, il a déjà été capturé !", ephemeral=True)
+                return
 
-        async with database.db_pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                # 1. On vérifie s'il possède déjà la carte AVANT de lui donner
-                await cur.execute("SELECT COUNT(*) FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s;", (user_id, pid))
-                owned_before = (await cur.fetchone())[0]
+            pokeweed = state.current_spawn
+            if not pokeweed:
+                await interaction.response.send_message("❌ Aucun Pokéweed à capturer maintenant...", ephemeral=True)
+                return
 
-                # 2. On insère la nouvelle capture
-                await cur.execute(
-                    "INSERT INTO user_pokeweeds (user_id, pokeweed_id, capture_date) VALUES (%s, %s, NOW());",
-                    (user_id, pid)
-                )
-                
-                # 3. Ajout des points
-                await database.add_points(database.db_pool, user_id, cap_pts)
-                new_total = await database.get_user_points(database.db_pool, user_id)
-                await helpers.update_member_prestige_role(interaction.user, new_total)
+            user_id = interaction.user.id
+            pid = pokeweed[0]
+            name = pokeweed[1]
+            cap_pts = pokeweed[3]
 
-        # On verrouille la capture pour les autres joueurs
-        state.capture_winner = user_id
+            async with database.db_pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    # 1. On vérifie s'il possède déjà la carte AVANT de lui donner
+                    await cur.execute("SELECT COUNT(*) FROM user_pokeweeds WHERE user_id=%s AND pokeweed_id=%s;", (user_id, pid))
+                    owned_before = (await cur.fetchone())[0]
+
+                    # 2. On insère la nouvelle capture
+                    await cur.execute(
+                        "INSERT INTO user_pokeweeds (user_id, pokeweed_id, capture_date) VALUES (%s, %s, NOW());",
+                        (user_id, pid)
+                    )
+
+                    # 3. Ajout des points
+                    await database.add_points(database.db_pool, user_id, cap_pts)
+                    new_total = await database.get_user_points(database.db_pool, user_id)
+                    await helpers.update_member_prestige_role(interaction.user, new_total)
+
+            # On verrouille la capture pour les autres joueurs
+            state.capture_winner = user_id
         
         # Message public dans le salon
         channel = interaction.channel
@@ -966,10 +1013,7 @@ def setup(bot: commands.Bot):
         ("Légendaire", "🌈👑")
     ]
 
-    def sanitize_filename(name: str) -> str:
-        import unicodedata, re
-        name = unicodedata.normalize('NFD', name).encode('ascii', 'ignore').decode('utf-8')
-        return re.sub(r'[^a-zA-Z0-9]', '', name).lower()
+    # sanitize_filename est déjà définie plus haut dans setup() — pas de redéfinition (M2)
 
     class RarityButton(discord.ui.Button):
         def __init__(self, rarity, emoji, user, pokes):
@@ -1125,6 +1169,15 @@ def setup(bot: commands.Bot):
 
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
+                # Vérifie d'abord si des Pokéweeds existent déjà (M3 — protection contre les doublons)
+                await cur.execute("SELECT COUNT(*) FROM pokeweeds;")
+                existing = (await cur.fetchone())[0]
+                if existing > 0:
+                    await interaction.response.send_message(
+                        f"⚠️ La base contient déjà **{existing} Pokéweed(s)**. Supprime-les d'abord si tu veux réinitialiser.",
+                        ephemeral=True
+                    )
+                    return
                 for s in strains:
                     await cur.execute("INSERT INTO pokeweeds (name, hp, capture_points, power, rarity, drop_rate) VALUES (%s,%s,%s,%s,%s,%s);", s)
 
@@ -1482,6 +1535,8 @@ def setup(bot: commands.Bot):
     # ---------------------------------------
     # /bet (Casino)
     # ---------------------------------------
+    _inflight_bets: set[int] = set()  # Protection anti-spam / double-dépense (C3)
+
     @bot.tree.command(name="bet", description="Parie tes points Kanaé ! 🎰")
     @app_commands.describe(mise="Le nombre de points que tu veux parier")
     async def bet(interaction: discord.Interaction, mise: int):
@@ -1489,72 +1544,78 @@ def setup(bot: commands.Bot):
 
         # 1. Sécurité : Vérifier le montant
         if mise <= 9:
-            await interaction.response.send_message("❌ Frérot, tu dois parier un montant positif (au moins 10 point).", ephemeral=True)
+            await interaction.response.send_message("❌ Frérot, tu dois parier un montant positif (au moins 10 points).", ephemeral=True)
             return
 
-        # --- 🛑 NOUVELLE SÉCURITÉ : VÉRIFICATION DU MAXIMUM ---
         if mise > 2000:
             await interaction.response.send_message("❌ Doucement le fou ! La mise maximale au casino est de **2000 points** par partie.", ephemeral=True)
             return
 
-        # 2. Sécurité : Vérifier si l'utilisateur a assez de points (mois + vie)
-        current_points = await database.get_user_points(database.db_pool, user_id)
-        monthly_points = await database.get_user_monthly_points(database.db_pool, user_id)
-        
-        # Le solde jouable est le minimum entre sa richesse à vie et sa richesse du mois
-        solde_jouable = min(current_points, monthly_points)
+        # Anti-spam / double-dépense (C3)
+        if interaction.user.id in _inflight_bets:
+            await interaction.response.send_message("⏳ T'as déjà un pari en cours frérot, attends le résultat !", ephemeral=True)
+            return
 
-        if solde_jouable < mise:
+        _inflight_bets.add(interaction.user.id)
+        try:
+            # 2. Sécurité : Vérifier si l'utilisateur a assez de points (mois + vie)
+            current_points = await database.get_user_points(database.db_pool, user_id)
+            monthly_points = await database.get_user_monthly_points(database.db_pool, user_id)
+
+            # Le solde jouable est le minimum entre sa richesse à vie et sa richesse du mois
+            solde_jouable = min(current_points, monthly_points)
+
+            if solde_jouable < mise:
+                await interaction.response.send_message(
+                    f"❌ T'es à sec ! Ton solde jouable actuel est de **{solde_jouable} points**.",
+                    ephemeral=True
+                )
+                return
+
+            casino_channel = interaction.client.get_channel(config.CASINO_CHANNEL_ID)
+            if not casino_channel:
+                logger.error("❌ Salon Casino introuvable !")
+                await interaction.response.send_message("❌ Le salon casino est introuvable. Contacte un admin !", ephemeral=True)
+                return
+
+            # On répond en privé au joueur que son pari est parti
             await interaction.response.send_message(
-                f"❌ T'es à sec ! Ton solde jouable actuel est de **{solde_jouable} points**.", 
+                f"🎰 Les dés sont jetés pour **{mise} pts** ! Va vite voir le résultat dans {casino_channel.mention} 💨",
                 ephemeral=True
             )
-            return
 
-        # --- NOUVEAUTÉ : On répond en privé au joueur que son pari est parti ---
-        await interaction.response.send_message(
-            f"🎰 Les dés sont jetés pour **{mise} pts** ! Va vite voir le résultat dans <#1477651520878280914> 💨", 
-            ephemeral=True
-        )
+            # 3. Le fameux tirage au sort (1 à 100)
+            roll = random.randint(1, 100)
 
-        # 3. Le fameux tirage au sort (1 à 100)
-        roll = random.randint(1, 100)
+            if roll <= 46:
+                # 🎉 GAGNÉ
+                new_total = await database.add_points(database.db_pool, user_id, mise)
+                await helpers.update_member_prestige_role(interaction.user, new_total)
 
-        # --- NOUVEAUTÉ : On récupère ton salon casino ---
-        casino_channel = interaction.client.get_channel(1477651520878280914)
-        if not casino_channel:
-            logger.error("❌ Salon Casino introuvable !")
-            return
+                embed = discord.Embed(
+                    title="🎰 CASINO KANAÉ - BINGO ! 🎉",
+                    description=f"Incroyable {interaction.user.mention} ! T'as eu le nez fin.\n\n"
+                                f"✅ Tu as parié **{mise} points** et tu as **DOUBLÉ** ta mise !\n"
+                                f"💰 Ton nouveau solde à vie : **{new_total} points**.",
+                    color=discord.Color.green()
+                )
+                await casino_channel.send(content=interaction.user.mention, embed=embed)
+            else:
+                # 💸 PERDU
+                new_total = await database.add_points(database.db_pool, user_id, -mise)
+                await helpers.update_member_prestige_role(interaction.user, new_total)
 
-        if roll <= 46:
-            # 🎉 GAGNÉ (48% de chance : 1 à 48)
-            new_total = await database.add_points(database.db_pool, user_id, mise)
-            await helpers.update_member_prestige_role(interaction.user, new_total)
-            
-            embed = discord.Embed(
-                title="🎰 CASINO KANAÉ - BINGO ! 🎉",
-                description=f"Incroyable {interaction.user.mention} ! T'as eu le nez fin.\n\n"
-                            f"✅ Tu as parié **{mise} points** et tu as **DOUBLÉ** ta mise !\n"
-                            f"💰 Ton nouveau solde à vie : **{new_total} points**.",
-                color=discord.Color.green()
-            )
-            # On envoie l'embed DANS LE SALON CASINO (avec un ping pour qu'il le voie bien)
-            await casino_channel.send(content=interaction.user.mention, embed=embed)
-        else:
-            # 💸 PERDU (52% de chance : 49 à 100)
-            new_total = await database.add_points(database.db_pool, user_id, -mise)
-            await helpers.update_member_prestige_role(interaction.user, new_total)
-            
-            embed = discord.Embed(
-                title="🎰 CASINO KANAÉ - COUP DUR... 💸",
-                description=f"Aïe coup dur pour {interaction.user.mention}...\n\n"
-                            f"❌ Le KanaéBot a raflé la mise ! Tu viens de perdre **{mise} points**.\n"
-                            f"📉 Ton nouveau solde à vie : **{new_total} points**.\n\n"
-                            f"*La maison gagne toujours :) (Mais tu peux toujours recommencer !)*",
-                color=discord.Color.red()
-            )
-            # On envoie l'embed DANS LE SALON CASINO
-            await casino_channel.send(content=interaction.user.mention, embed=embed)
+                embed = discord.Embed(
+                    title="🎰 CASINO KANAÉ - COUP DUR... 💸",
+                    description=f"Aïe coup dur pour {interaction.user.mention}...\n\n"
+                                f"❌ Le KanaéBot a raflé la mise ! Tu viens de perdre **{mise} points**.\n"
+                                f"📉 Ton nouveau solde à vie : **{new_total} points**.\n\n"
+                                f"*La maison gagne toujours :) (Mais tu peux toujours recommencer !)*",
+                    color=discord.Color.red()
+                )
+                await casino_channel.send(content=interaction.user.mention, embed=embed)
+        finally:
+            _inflight_bets.discard(interaction.user.id)
 
     # ---------------------------------------
     # /wakeandbake (Daily Reward)
@@ -1603,6 +1664,9 @@ def setup(bot: commands.Bot):
     async def douille(interaction: discord.Interaction, mise: int):
         if mise < 10:
             await interaction.response.send_message("❌ Minimum syndical : 10 points la partie.", ephemeral=True)
+            return
+        if mise > 2000:
+            await interaction.response.send_message("❌ Doucement le fou ! La mise maximale est de **2000 points** par partie.", ephemeral=True)
             return
             
         user_id = str(interaction.user.id)
@@ -2160,7 +2224,7 @@ def setup(bot: commands.Bot):
     @bot.tree.command(name="machine420", description="🎰 Tire le bras de la machine et tente le Jackpot 420 !")
     @app_commands.describe(mise="Le nombre de points que tu veux parier")
     async def slots(interaction: discord.Interaction, mise: int):
-        casino_channel = interaction.client.get_channel(1477651520878280914)
+        casino_channel = interaction.client.get_channel(config.CASINO_CHANNEL_ID)
         
         try:
             await interaction.response.defer(ephemeral=True)
@@ -2743,8 +2807,8 @@ def setup(bot: commands.Bot):
     async def jackpot(interaction: discord.Interaction):
         global active_jackpot
         
-        casino_channel_id = 1477651520878280914
-        
+        casino_channel_id = config.CASINO_CHANNEL_ID
+
         if interaction.channel_id != casino_channel_id:
             await interaction.response.send_message(f"❌ Le jackpot, ça se passe exclusivement dans <#{casino_channel_id}> !", ephemeral=True)
             return

@@ -181,7 +181,7 @@ def setup(bot: commands.Bot):
                 
             # Étape B : L'annonce triste dans le Casino
             try:
-                casino_channel = after.guild.get_channel(1477651520878280914)
+                casino_channel = after.guild.get_channel(config.CASINO_CHANNEL_ID)
                 if casino_channel:
                     await casino_channel.send(
                         f"📉 **COUP DUR POUR LE SERVEUR...**\n"
@@ -272,48 +272,37 @@ def setup(bot: commands.Bot):
                 label="🌿 Montre ta batte", style=discord.ButtonStyle.link,
                 url=f"https://discord.com/channels/{member.guild.id}/{config.CHANNEL_MONTRE_TA_BATTE_ID}"
             ))
-            message = (
+            # DM découpé en 2 messages pour respecter la limite Discord de 2000 chars (E2)
+            msg_part1 = (
                 f"🌿 Yo {member.name} ! Bienvenue dans le cercle **{member.guild.name}**.\n\n"
                 "Ici, ça chill, ça partage, et ça kiffe. **0 pression**. 😎\n"
                 "Que tu sois là pour montrer ta dernière **batte** 🌿, ton **matos** 🔥, ou juste pour papoter 💬, **t'es chez toi**.\n\n"
                 "Avant de te lancer, check les règles 📜 et **présente-toi** 🙋 (Montre qui t'es, en fait).\n\n"
-                "Ensuite, n'hésite pas à découvrir les autres salons et à te balader 🚀.\n\n"
-                "**(👻 Discret ? Si tu veux changer ton pseudo, clique droit sur ton profil à droite et choisis 'Changer le pseudo')**\n\n"
+                "**(👻 Discret ? Si tu veux changer ton pseudo, clique droit sur ton profil et choisis 'Changer le pseudo')**\n\n"
                 "🏆 **LE KANAÉ D'OR (Notre grand concours) :**\n"
-                "Ici, presque tout ce que tu fais te rapporte des points (vocaux, photos, messages, casino...). "
-                "Grimpe en grade, débloque des rôles de prestige et tente de devenir l'Empereur de Kanaé pour rafler le Kanaé d'Or ! 👑\n\n"
+                "Presque tout ce que tu fais te rapporte des points (vocaux, photos, messages, casino...). "
+                "Grimpe en grade, débloque des rôles de prestige et tente de devenir l'Empereur de Kanaé ! 👑\n\n"
                 "📦 **Le Pokéweed est là !**\n"
-                "   ➕ Collectionne les 31 strains fusionnés avec des Pokémon 🌈\n"
-                "   🃏 Ouvre des boosters, attrape des Pokéweeds sauvages, et complète ton Pokédex !\n"
-                "   🌿 (psst... tu peux même revendre tes doublons depuis ton pokédex pour gagner des points !) 👀\n\n"
-                "🎮 **LES COMMANDES À CONNAÎTRE :**\n\n"
-                "🏆 **Économie & Casino :**\n"
-                "   ➡️ **/wakeandbake** – Ta récompense gratuite quotidienne (fais grimper ta série !) 🌅\n"
-                "   ➡️ **/score** – Voir ton score et ton rang 📊\n"
-                "   ➡️ **/top-5** – Voir les 5 meilleurs fumeurs du serveur 🏆\n"
-                "   ➡️ **/bet** {mise} – Parie tes points au casino (48% de chance de doubler) 🎰\n"
-                "   ➡️ **/douille** {mise} – Roulette russe multijoueur (jusqu'à 6 joueurs) 🔫\n"
-                "   ➡️ **/help-concours** – Guide complet des différentes façons de gagner des points 📚\n\n"
-                "🌿 **Pokéweed :**\n"
-                "   ➡️ **/booster** – Ouvre 4 Pokéweeds aléatoires 🔥 (1x toutes les 12h)\n"
-                "   ➡️ **/capture** – Dégaine vite pour attraper le Pokéweed sauvage 💨\n"
-                "   ➡️ **/pokedex** – Affiche ta collection ou vends tes doubles 🌿\n\n"
-                "💜 **Réseaux & Twitch (Points gratuits) :**\n"
-                "   ➡️ **/link-twitch** {pseudo} – Relie ton compte pour les récompenses de follow/sub 🎁\n"
-                "   ➡️ **/mes-reseaux** – Voir la liste de tes comptes liés 🌐\n"
-                "   ➡️ **/refresh-points** – Récupérer tes points Twitch 🔄\n"
-                "   ➡️ **/unlink-twitch** – Délier ton compte en cas d'erreur\n\n"
-                "🎵 **Musique :**\n"
-                "   ➡️ **/play** {musique} – Lance une musique dans **KanaéMUSIC** 🎶\n\n"
-                "🧠 **Général & Staff :**\n"
-                "   ➡️ **/hey** {message} – Discute avec l'IA de **Kanaé** 🤖\n"
-                "   ➡️ **/help-commandes** – Affiche ce menu d'aide complet 🛠️\n"
-                "   ➡️ **/candidature** – Formulaire pour postuler et rejoindre le staff 📝\n\n"
+                "   🃏 Ouvre des boosters, attrape des Pokéweeds sauvages, complète ton Pokédex !\n"
+                "   🌿 (psst... tu peux revendre tes doublons depuis `/pokedex` pour gagner des points !) 👀\n\n"
+                "🎮 **COMMANDES ESSENTIELLES :**\n"
+                "   ➡️ **/wakeandbake** – Cadeau quotidien gratuit 🌅\n"
+                "   ➡️ **/score** – Ton score et ton rang 📊\n"
+                "   ➡️ **/bet** – Casino (48% de chance de doubler) 🎰\n"
+                "   ➡️ **/booster** – 4 Pokéweeds aléatoires (1x/12h) 🔥\n"
+                "   ➡️ **/help-commandes** – Menu d'aide complet 🛠️"
+            )
+            msg_part2 = (
+                "💜 **Réseaux & Points gratuits :**\n"
+                "   ➡️ **/link-twitch** {pseudo} – Follow/Sub Twitch = points bonus 🎁\n"
+                "   ➡️ **/refresh-points** – Récupère tes récompenses Twitch 🔄\n\n"
                 f"🎭 **CHOISIS TON CAMP :**\n"
-                f"Passe faire un tour dans <#{config.REACTION_ROLE_CHANNEL_ID}> pour afficher tes préférences (**Team Weed**, **Team Shit** ou les deux !) et débloquer ton rôle exclusif. 💨\n\n"
+                f"Passe dans <#{config.REACTION_ROLE_CHANNEL_ID}> pour choisir **Team Weed** 🥦 ou **Team Shit** 🍫 et débloquer ton rôle exclusif. 💨\n\n"
+                "Bonne fumette et bienvenue dans la famille ! 🌿🔥"
             )
 
-            await helpers.safe_send_dm(member, message)
+            await helpers.safe_send_dm(member, msg_part1)
+            await helpers.safe_send_dm(member, msg_part2)
             logger.info("Welcome DM sent to %s", member.name)
         except Exception as e:
             logger.warning("Failed to send welcome DM: %s", e)

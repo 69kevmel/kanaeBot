@@ -177,8 +177,8 @@ async def update_member_prestige_role(member: discord.Member, points: int):
             if not already_demoted:
                 # 1ère fois qu'il perd ce rôle : Message triste envoyé DANS LE CASINO !
                 # (1477651520878280914 est l'ID de ton salon casino)
-                casino_channel = member.guild.get_channel(1477651520878280914) 
-                
+                casino_channel = member.guild.get_channel(config.CASINO_CHANNEL_ID)
+
                 if casino_channel:
                     import random
                     # On utilise .name au lieu de .mention pour éviter le ping des rôles
@@ -333,15 +333,30 @@ async def refresh_event_message(bot: discord.Client):
                 if ev["event_id"]:
                     url = f"https://discord.com/events/{msg.guild.id}/{ev['event_id']}"
                     event_link = f"\n\n> 📥 **[REJOINDRE L'ÉVÉNEMENT (CLIQUE ICI)]({url})**"
-                
-                # 🛡️ SÉCURITÉ : Raccourcir la description si elle est trop longue
+
+                # Sécurité taille : description tronquée (E4)
                 safe_desc = ev['desc']
                 if len(safe_desc) > 150:
                     safe_desc = safe_desc[:147] + "..."
-                
-                val = f"--- {ev['titre'].upper()}\n{anim_text}📝 *{safe_desc}*{event_link}\n\u200b"
-                
-                cat_embed.add_field(name=f"📍 {ev['jour_str']} • {ev['heure_str']}", value=val, inline=False)
+
+                # Sécurité taille : titre tronqué à 100 chars (E4)
+                safe_titre = ev['titre'][:100]
+
+                val = f"— {safe_titre.upper()}\n{anim_text}📝 *{safe_desc}*{event_link}\n\u200b"
+
+                # Guard : on ne dépasse pas 1024 chars par field value (limite Discord) (E4)
+                if len(val) > 1024:
+                    val = val[:1021] + "..."
+
+                field_name = f"📍 {ev['jour_str']} • {ev['heure_str']}"
+
+                # Guard : on ne dépasse pas 6000 chars par embed (limite Discord) (E4)
+                current_size = sum(len(f.name) + len(f.value) for f in cat_embed.fields)
+                if current_size + len(field_name) + len(val) > 5800:
+                    cat_embed.add_field(name="\u200b", value="*… et d'autres events. Consulte le planning complet avec `/planning`.*", inline=False)
+                    break
+
+                cat_embed.add_field(name=field_name, value=val, inline=False)
             
             embeds.append(cat_embed)
             
