@@ -2794,6 +2794,130 @@ def setup(bot: commands.Bot):
         await interaction.followup.send(embed=preview_embed, view=view, ephemeral=True)
 
     # ---------------------------------------
+    # /nsa (Dossier Renseignements Modération)
+    # ---------------------------------------
+    @bot.tree.command(name="nsa", description="(Admin/Mod) Récolte le maximum d'infos et l'historique ModLog d'un utilisateur.")
+    @app_commands.default_permissions(manage_messages=True)
+    @app_commands.describe(membre="Le membre à surveiller")
+    async def nsa_cmd(interaction: discord.Interaction, membre: discord.Member):
+        await interaction.response.defer(ephemeral=True)
+
+        nsa_channel_id = 1517139845384765511
+        nsa_channel = interaction.client.get_channel(nsa_channel_id)
+
+        if not nsa_channel:
+            await interaction.followup.send("❌ Le salon NSA est introuvable avec cet ID !", ephemeral=True)
+            return
+
+        user_id_str = str(membre.id)
+
+        # --- 1. RÉCOLTE DES DONNÉES EN BASE ---
+        score_vie = await database.get_user_points(database.db_pool, user_id_str)
+        score_mois = await database.get_user_monthly_points(database.db_pool, user_id_str)
+        socials = await database.get_all_socials_by_discord(database.db_pool, membre.id)
+
+        async with database.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                # Total Pokéweeds possédés
+                await cur.execute("SELECT COUNT(*) FROM user_pokeweeds WHERE user_id=%s;", (user_id_str,))
+                poke_count = (await cur.fetchone())[0]
+
+                # Série Wake and Bake
+                await cur.execute("SELECT streak FROM wake_and_bake WHERE user_id=%s;", (user_id_str,))
+                row = await cur.fetchone()
+                wb_streak = row[0] if row else 0
+
+        # Formatage des réseaux sociaux
+        socials_text = "\n".join([f"• {plat.capitalize()} : {uname}" for plat, uname in socials]) if socials else "*Aucun compte lié*"
+
+        # Formatage des rôles
+        roles = [r.mention for r in membre.roles if r.id != interaction.guild.default_role.id]
+        roles_text = " ".join(roles) if roles else "*Aucun rôle*"
+
+        # --- 2. CRÉATION DU DOSSIER PRINCIPAL (Embed 1) ---
+        embed_profil = discord.Embed(
+            title=f"👁️ DOSSIER NSA : {membre.name}",
+            description=f"**Mention :** {membre.mention}\n**ID :** `{membre.id}`",
+            color=discord.Color.dark_grey(),
+            timestamp=discord.utils.utcnow()
+        )
+        embed_profil.set_thumbnail(url=membre.display_avatar.url)
+
+        embed_profil.add_field(name="📅 Création Discord", value=f"<t:{int(membre.created_at.timestamp())}:f>", inline=True)
+        embed_profil.add_field(name="📥 Arrivée Kanaé", value=f"<t:{int(membre.joined_at.timestamp())}:f>", inline=True)
+        embed_profil.add_field(name="\u200b", value="\u200b", inline=True)
+
+        embed_profil.add_field(name="🌟 Score à vie", value=f"**{score_vie}** pts", inline=True)
+        embed_profil.add_field(name="🏆 Score du mois", value=f"**{score_mois}** pts", inline=True)
+        embed_profil.add_field(name="🔥 Wake & Bake", value=f"Série : **{wb_streak}**j", inline=True)
+
+        embed_profil.add_field(name="🌿 Inventaire Pokéweed", value=f"**{poke_count}** cartes", inline=True)
+        embed_profil.add_field(name="🔗 Réseaux liés", value=socials_text, inline=True)
+        embed_profil.add_field(name="\u200b", value="\u200b", inline=True)
+
+        embed_profil.add_field(name="🏷️ Rôles", value=roles_text, inline=False)
+
+        # --- 3. FOUILLE ARCHIVES MODLOG (Grep) ---
+        modlog_channel = interaction.client.get_channel(config.MOD_LOG_CHANNEL_ID)
+        modlog_history_text = ""
+        trouvailles = 0
+
+        if modlog_channel:
+            # On remonte les 3000 derniers messages du modlog (à ajuster si ça prend trop de temps)
+            async for msg in modlog_channel.history(limit=3000):
+                concerns_user = False
+                
+                # Check dans le texte brut
+                if user_id_str in msg.content or membre.name in msg.content:
+                    concerns_user = True
+                else:
+                    # Check dans le contenu des embeds
+                    for e in msg.embeds:
+                        if (e.description and user_id_str in e.description) or \
+                           (e.title and membre.name in e.title) or \
+                           (e.author and e.author.name and membre.name in e.author.name) or \
+                           (e.footer and e.footer.text and user_id_str in e.footer.text):
+                            concerns_user = True
+                            break
+
+                if concerns_user:
+                    trouvailles += 1
+                    link = f"[Voir]({msg.jump_url})"
+                    
+                    # On extrait ce qui est lisible pour l'aperçu
+                    preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
+                    if not preview and msg.embeds:
+                        preview = f"*[Embed: {msg.embeds[0].title or 'Log'}]*"
+                        
+                    modlog_history_text += f"• <t:{int(msg.created_at.timestamp())}:d> : {preview} {link}\n"
+
+                    # Sécurité pour ne pas exploser la limite de caractères de l'embed Discord (4096)
+                    if len(modlog_history_text) > 3500:
+                        modlog_history_text += "\n⚠️ *...et d'autres résultats (limite d'affichage atteinte).* MAX"
+                        break
+
+            if trouvailles == 0:
+                modlog_history_text = "*Aucune trace trouvée dans les logs récents.* 👻"
+        else:
+            modlog_history_text = "*Erreur: Le canal ModLog est introuvable ou inaccessible.*"
+
+        # --- 4. CRÉATION DU DOSSIER LOGS (Embed 2) ---
+        embed_modlog = discord.Embed(
+            title=f"📂 HISTORIQUE MODLOG ({trouvailles} entrées trouvées)",
+            description=modlog_history_text,
+            color=discord.Color.red()
+        )
+        embed_modlog.set_footer(text="Recherche effectuée sur les 3000 derniers logs.")
+
+        # --- 5. ENVOI AU QG NSA ---
+        try:
+            await nsa_channel.send(content=f"🚨 **Demande de renseignements NSA par {interaction.user.mention}** 🚨", embeds=[embed_profil, embed_modlog])
+            await interaction.followup.send(f"✅ Dossier compilé avec succès et envoyé dans {nsa_channel.mention} !", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Erreur envoi NSA: {e}")
+            await interaction.followup.send("❌ Une erreur est survenue lors de l'envoi du dossier.", ephemeral=True)
+
+    # ---------------------------------------
     # /jackpot (Le Gros Pot)
     # ---------------------------------------
     @bot.tree.command(name="jackpot", description="Lance un pot commun ! Le gagnant rafle TOUTES les mises. 🎰")
