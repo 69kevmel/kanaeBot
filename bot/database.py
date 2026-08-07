@@ -711,19 +711,19 @@ async def get_reserved_pro_slots(pool, animateur_id=None):
                 await cur.execute("SELECT id, slot_date, heure, titre FROM planning_pro WHERE est_reserve = TRUE AND slot_date >= CURDATE() ORDER BY slot_date ASC;")
             return await cur.fetchall()
 
-async def reserve_pro_slot(pool, slot_id, animateur_id, titre, description):
+async def reserve_pro_slot(pool, slot_id, animateur_id, titre, description, event_id=None):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "UPDATE planning_pro SET est_reserve = TRUE, animateur_id = %s, titre = %s, description = %s WHERE id = %s;",
-                (int(animateur_id), titre, description, int(slot_id))
+                "UPDATE planning_pro SET est_reserve = TRUE, animateur_id = %s, titre = %s, description = %s, event_id = %s WHERE id = %s;",
+                (int(animateur_id), titre, description, event_id, int(slot_id))
             )
 
 async def cancel_pro_slot(pool, slot_id):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "UPDATE planning_pro SET est_reserve = FALSE, animateur_id = NULL, titre = NULL, description = NULL WHERE id = %s;",
+                "UPDATE planning_pro SET est_reserve = FALSE, animateur_id = NULL, titre = NULL, description = NULL, event_id = NULL WHERE id = %s;",
                 (int(slot_id),)
             )
 
@@ -738,7 +738,7 @@ async def get_pro_slot_by_id(pool, slot_id):
     """Récupère les infos d'un créneau précis pour les annonces"""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
-            await cur.execute("SELECT slot_date, heure, titre FROM planning_pro WHERE id = %s;", (int(slot_id),))
+            await cur.execute("SELECT slot_date, heure, titre, event_id FROM planning_pro WHERE id = %s;", (int(slot_id),))
             return await cur.fetchone()
         
 async def delete_pro_slot(pool, slot_id):
@@ -761,49 +761,13 @@ async def get_public_events(pool):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute("""
-                SELECT slot_date, heure, animateur_id, titre, description 
-                FROM planning_pro 
-                WHERE est_reserve = TRUE AND slot_date >= CURDATE() 
-                ORDER BY slot_date ASC, heure ASC;
-            """)
-            return await cur.fetchall()
-        
-
-async def reserve_pro_slot(pool, slot_id, animateur_id, titre, description, event_id=None):
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "UPDATE planning_pro SET est_reserve = TRUE, animateur_id = %s, titre = %s, description = %s, event_id = %s WHERE id = %s;",
-                (int(animateur_id), titre, description, event_id, int(slot_id))
-            )
-
-async def cancel_pro_slot(pool, slot_id):
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "UPDATE planning_pro SET est_reserve = FALSE, animateur_id = NULL, titre = NULL, description = NULL, event_id = NULL WHERE id = %s;",
-                (int(slot_id),)
-            )
-
-async def get_pro_slot_by_id(pool, slot_id):
-    """Récupère les infos d'un créneau précis pour les annonces"""
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT slot_date, heure, titre, event_id FROM planning_pro WHERE id = %s;", (int(slot_id),))
-            return await cur.fetchone()
-
-async def get_public_events(pool):
-    """Récupère les événements réservés à venir pour le panneau public."""
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("""
                 SELECT slot_date, heure, animateur_id, titre, description, event_id 
                 FROM planning_pro 
                 WHERE est_reserve = TRUE AND slot_date >= CURDATE() 
                 ORDER BY slot_date ASC, heure ASC;
             """)
             return await cur.fetchall()
-        
+
 # --- FONCTIONS POUR LE SYSTÈME DE RELANCE ---
 async def get_inactive_users_stats(pool, categorie="vie"):
     """Récupère les joueurs à 0 point avec leurs stats de relance."""

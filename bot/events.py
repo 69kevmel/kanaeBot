@@ -135,6 +135,7 @@ def setup(bot: commands.Bot):
         tasks.wake_and_bake_reminder.start(bot)
         tasks.daily_staff_briefing.start(bot)
         tasks.auto_refresh_planning.start(bot)
+        tasks.check_nouveau_fumeur_roles.start(bot)
         bot.loop.create_task(tasks.random_quiz_loop(bot)) # <== LIGNE À AJOUTER POUR LE QUIZ
         bot.loop.create_task(tasks.spawn_pokeweed_loop(bot))
         # Lancement du bot Twitch en tâche de fond
@@ -205,6 +206,33 @@ def setup(bot: commands.Bot):
             logger.error("⛔ Je n'ai pas la permission de donner le rôle. Mon rôle de Bot doit être placé AU-DESSUS du rôle Membre dans les paramètres Discord !")
         except Exception as e:
             logger.warning("Erreur lors de l'attribution du rôle à %s : %s", member.name, e)
+
+        # --- ATTRIBUTION DU RÔLE "NOUVEAU FUMEUR" (TEMPORAIRE 48H) ---
+        try:
+            role_nouveau_fumeur = member.guild.get_role(config.ROLE_NOUVEAU_FUMEUR_ID)
+            if role_nouveau_fumeur:
+                await member.add_roles(role_nouveau_fumeur, reason="Tag temporaire nouveau membre")
+                logger.info("Rôle Nouveau Fumeur donné à %s", member.name)
+
+                # Tâche asynchrone : retirer le rôle après 48 heures
+                async def remove_nouveau_fumeur_after_2_days():
+                    await asyncio.sleep(172800)  # 48 heures = 2 jours
+                    # Re-fetch le membre pour vérifier qu'il est toujours sur le serveur
+                    guild = member.guild
+                    fresh_member = guild.get_member(member.id)
+                    if fresh_member and role_nouveau_fumeur in fresh_member.roles:
+                        try:
+                            await fresh_member.remove_roles(role_nouveau_fumeur, reason="Expiration du tag Nouveau Fumeur (48h)")
+                            logger.info("✅ Rôle Nouveau Fumeur retiré de %s après 48h", fresh_member.name)
+                        except Exception as e:
+                            logger.warning("Impossible de retirer le rôle Nouveau Fumeur à %s : %s", member.name, e)
+
+                asyncio.create_task(remove_nouveau_fumeur_after_2_days())
+            else:
+                logger.warning("❌ Rôle Nouveau Fumeur introuvable. Vérifie ROLE_NOUVEAU_FUMEUR_ID.")
+        except Exception as e:
+            logger.warning("Erreur lors de l'attribution du rôle Nouveau Fumeur à %s : %s", member.name, e)
+
         try:
             guild = member.guild
             invites_before = state.invite_cache.get(guild.id, [])

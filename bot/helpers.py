@@ -176,7 +176,7 @@ async def update_member_prestige_role(member: discord.Member, points: int):
 
             if not already_demoted:
                 # 1ère fois qu'il perd ce rôle : Message triste envoyé DANS LE CASINO !
-                # (1477651520878280914 est l'ID de ton salon casino)
+                # (CASINO_CHANNEL_ID est défini dans config.py)
                 casino_channel = member.guild.get_channel(config.CASINO_CHANNEL_ID)
 
                 if casino_channel:

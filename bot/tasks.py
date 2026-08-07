@@ -507,6 +507,32 @@ async def daily_staff_briefing(bot: discord.Client):
         embed = discord.Embed(description="\n".join(lines), color=discord.Color.gold())
         await channel.send(embed=embed)
 
+@tasks.loop(hours=24)
+async def check_nouveau_fumeur_roles(bot: discord.Client):
+    """Vérifie chaque jour les membres ayant le rôle Nouveau Fumeur et le retire si + de 48h."""
+    now = datetime.now(timezone.utc)
+    removed_count = 0
+
+    for guild in bot.guilds:
+        role = guild.get_role(config.ROLE_NOUVEAU_FUMEUR_ID)
+        if not role:
+            logger.warning("⚠️ [Nouveau Fumeur] Rôle introuvable sur %s (vérifie ROLE_NOUVEAU_FUMEUR_ID).", guild.name)
+            continue
+
+        for member in role.members:
+            if member.joined_at is None:
+                continue
+            # Si le membre est là depuis plus de 2 jours (48h)
+            if (now - member.joined_at).total_seconds() >= 172800:
+                try:
+                    await member.remove_roles(role, reason="Expiration du tag Nouveau Fumeur (48h) — vérification quotidienne")
+                    logger.info("✅ [Nouveau Fumeur] Rôle retiré de %s (arrivé il y a %s).", member.name, now - member.joined_at)
+                    removed_count += 1
+                except Exception as e:
+                    logger.warning("❌ [Nouveau Fumeur] Impossible de retirer le rôle à %s : %s", member.name, e)
+
+    logger.info("🔍 [Nouveau Fumeur] Vérification quotidienne terminée — %d rôle(s) retiré(s).", removed_count)
+
 @tasks.loop(hours=1)
 async def auto_refresh_planning(bot: discord.Client):
     """Vérifie l'affichage toutes les heures pour supprimer les jours passés."""

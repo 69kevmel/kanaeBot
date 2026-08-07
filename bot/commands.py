@@ -1513,7 +1513,7 @@ def setup(bot: commands.Bot):
 
         # --- NOUVEAUTÉ : On répond en privé au joueur que son pari est parti ---
         await interaction.response.send_message(
-            f"🎰 Les dés sont jetés pour **{mise} pts** ! Va vite voir le résultat dans <#1477651520878280914> 💨", 
+            f"🎰 Les dés sont jetés pour **{mise} pts** ! Va vite voir le résultat dans <#{config.CASINO_CHANNEL_ID}> 💨", 
             ephemeral=True
         )
 
@@ -1521,7 +1521,7 @@ def setup(bot: commands.Bot):
         roll = random.randint(1, 100)
 
         # --- NOUVEAUTÉ : On récupère ton salon casino ---
-        casino_channel = interaction.client.get_channel(1477651520878280914)
+        casino_channel = interaction.client.get_channel(config.CASINO_CHANNEL_ID)
         if not casino_channel:
             logger.error("❌ Salon Casino introuvable !")
             return
@@ -2217,7 +2217,7 @@ def setup(bot: commands.Bot):
     @bot.tree.command(name="machine420", description="🎰 Tire le bras de la machine et tente le Jackpot 420 !")
     @app_commands.describe(mise="Le nombre de points que tu veux parier")
     async def slots(interaction: discord.Interaction, mise: int):
-        casino_channel = interaction.client.get_channel(1477651520878280914)
+        casino_channel = interaction.client.get_channel(config.CASINO_CHANNEL_ID)
         
         try:
             await interaction.response.defer(ephemeral=True)
@@ -2802,8 +2802,7 @@ def setup(bot: commands.Bot):
     async def nsa_cmd(interaction: discord.Interaction, membre: discord.Member):
         await interaction.response.defer(ephemeral=True)
 
-        nsa_channel_id = 1517139845384765511
-        nsa_channel = interaction.client.get_channel(nsa_channel_id)
+        nsa_channel = interaction.client.get_channel(config.NSA_CHANNEL_ID)
 
         if not nsa_channel:
             await interaction.followup.send("❌ Le salon NSA est introuvable avec cet ID !", ephemeral=True)
@@ -2924,9 +2923,7 @@ def setup(bot: commands.Bot):
     async def jackpot(interaction: discord.Interaction):
         global active_jackpot
         
-        casino_channel_id = 1477651520878280914
-        
-        if interaction.channel_id != casino_channel_id:
+        if interaction.channel_id != config.CASINO_CHANNEL_ID:
             await interaction.response.send_message(f"❌ Le jackpot, ça se passe exclusivement dans <#{casino_channel_id}> !", ephemeral=True)
             return
 
