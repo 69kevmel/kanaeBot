@@ -239,12 +239,12 @@ async def fetch_and_send_news(bot: discord.Client):
 
 async def spawn_pokeweed_loop(bot: discord.Client):
     await bot.wait_until_ready()
-    logger.info("🌱 Boucle de spawn Pokéweed démarrée !")
+    logger.info("🌱 Boucle de spawn Kanamon démarrée !")
 
     while True:
         # Délai entre 4h et 5h
         delay = random.randint(20000, 25000)
-        logger.info(f"⏳ Prochain spawn Pokéweed dans {delay // 60} minutes.")
+        logger.info(f"⏳ Prochain spawn Kanamon dans {delay // 60} minutes.")
         
         try:
             await asyncio.sleep(delay)
@@ -263,7 +263,7 @@ async def spawn_pokeweed_loop(bot: discord.Client):
 async def spawn_pokeweed(bot: discord.Client):
     channel = bot.get_channel(config.CHANNEL_POKEWEED_ID)
     if not channel:
-        logger.warning("❗ Channel Pokéweed introuvable.")
+        logger.warning("❗ Channel Kanamon introuvable.")
         return
 
     async with database.db_pool.acquire() as conn:
@@ -272,7 +272,7 @@ async def spawn_pokeweed(bot: discord.Client):
             pokeweed = await cur.fetchone()
 
     if not pokeweed:
-        logger.warning("❗ Aucun Pokéweed trouvé en base.")
+        logger.warning("❗ Aucun Kanamon trouvé en base.")
         return
 
     pid, name, hp, cap_pts, power, rarity = pokeweed
@@ -295,7 +295,7 @@ async def spawn_pokeweed(bot: discord.Client):
         return
 
     embed = discord.Embed(
-        title="👀 Un Pokéweed sauvage est apparu !",
+        title="👀 Un Kanamon sauvage est apparu !",
         description=(
             f"🌿 **{name}**\n"
             f"💥 Attaque : {power} | ❤️ Vie : {hp} | ✨ Rareté : {rarity}\n\n"
@@ -336,7 +336,7 @@ class ConcoursHelpView(discord.ui.View):
             "   • 👑 **Bonus Créateur :** +2 points quand quelqu'un te répond\n\n"
             "📺 **Activité Twitch**\n"
             "   • 💬 **Chat en live :** +1 point par message envoyé quand le live est ON (1 pt/minute max)\n\n"
-            "🌿 **Mini-Jeu Pokéweed**\n"
+            "🌿 **Mini-Jeu Kanamon**\n"
             "   • 🃏 **`/booster` :** +2 à +15 points par carte (+5 pts si c'est une nouvelle !)\n"
             "   • ⚡ **`/capture` :** Gagne des points bonus si tu es le premier à attraper le sauvage\n\n"
             "🔥 *Que le meilleur gagne frérot !*"
@@ -537,7 +537,11 @@ async def check_nouveau_fumeur_roles(bot: discord.Client):
 async def auto_refresh_planning(bot: discord.Client):
     """Vérifie l'affichage toutes les heures pour supprimer les jours passés."""
     await bot.wait_until_ready()
-    await helpers.refresh_event_message(bot)
+    try:
+        await helpers.refresh_event_message(bot)
+    except Exception:
+        # Un incident Discord/SQL ne doit pas arrêter définitivement la boucle.
+        logger.exception("Impossible d'actualiser le planning ; nouvelle tentative au prochain passage")
 
 class QuizView(discord.ui.View):
     def __init__(self, question_data):

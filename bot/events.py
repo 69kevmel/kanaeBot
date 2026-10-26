@@ -25,7 +25,7 @@ class WelcomeSuiteView(discord.ui.View):
             "🎮 **LES COMMANDES DE BASE :**\n"
             "• `/score` : Voir ton nombre de points.\n"
             "• `/wakeandbake` : Ton cadeau quotidien (à faire tous les jours pour ton bonus !).\n"
-            "• `/booster` : Ouvre un paquet de cartes Pokéweed (1 fois toutes les 12h).\n"
+            "• `/booster` : Ouvre un paquet de cartes Kanamon (1 fois toutes les 12h).\n"
             "• `/bet` & `/douille` : Le coin casino pour miser tes points.\n"
              "• `/help-commandes` : Pour voir tout le reste de mes capacités !\n\n"
              f"🎭 **CHOISIS TON CAMP & ACTIVE TES ALERTES :**\n"
@@ -313,14 +313,14 @@ def setup(bot: commands.Bot):
                 "🏆 **LE KANAÉ D'OR (Notre grand concours) :**\n"
                 "Presque tout ce que tu fais te rapporte des points (vocaux, photos, messages, casino...). "
                 "Grimpe en grade, débloque des rôles de prestige et tente de devenir l'Empereur de Kanaé ! 👑\n\n"
-                "📦 **Le Pokéweed est là !**\n"
-                "   🃏 Ouvre des boosters, attrape des Pokéweeds sauvages, complète ton Pokédex !\n"
-                "   🌿 (psst... tu peux revendre tes doublons depuis `/pokedex` pour gagner des points !) 👀\n\n"
+                "📦 **Les Kanamons sont là !**\n"
+                "   🃏 Ouvre des boosters, attrape des Kanamons sauvages, complète ton Kanadeck !\n"
+                "   🌿 (psst... tu peux revendre tes doublons depuis `/kanadeck` pour gagner des points !) 👀\n\n"
                 "🎮 **COMMANDES ESSENTIELLES :**\n"
                 "   ➡️ **/wakeandbake** – Cadeau quotidien gratuit 🌅\n"
                 "   ➡️ **/score** – Ton score et ton rang 📊\n"
                 "   ➡️ **/bet** – Casino (48% de chance de doubler) 🎰\n"
-                "   ➡️ **/booster** – 4 Pokéweeds aléatoires (1x/12h) 🔥\n"
+                "   ➡️ **/booster** – 4 Kanamons aléatoires (1x/12h) 🔥\n"
                 "   ➡️ **/help-commandes** – Menu d'aide complet 🛠️"
             )
             msg_part2 = (
@@ -351,7 +351,7 @@ def setup(bot: commands.Bot):
                 pts_mois = await database.get_user_monthly_points(database.db_pool, member.id)
                 pokes = await database.get_user_pokeweeds_unique(database.db_pool, member.id)
                 
-                # Calcul du nombre total de Pokéweeds qu'il abandonne (l'index 3 correspond au "count")
+                # Calcul du nombre total de Kanamons qu'il abandonne (l'index 3 correspond au "count")
                 total_pokes = sum(p[3] for p in pokes) if pokes else 0
 
                 # ⏳ Calcul du temps passé (Discord Timestamp magique)
@@ -370,7 +370,7 @@ def setup(bot: commands.Bot):
                 elif pts_vie > 15000:
                     note = "Un PUTAIN de pilier nous quitte 🫡. On fumera le prochain en son honneur."
                 elif total_pokes > 10:
-                    note = "Le mec s'est barré en laissant toutes ses cartes Pokéweed à l'abandon... Triste."
+                    note = "Le mec s'est barré en laissant toutes ses cartes Kanamon à l'abandon... Triste."
                 else:
                     note = "Il a fumé sa part en scred, puis il s'est taillé la route 🚶‍♂️💨."
 
@@ -386,7 +386,7 @@ def setup(bot: commands.Bot):
                 embed.add_field(name="🌟 Score à vie", value=f"**{pts_vie} pts**", inline=True)
                 embed.add_field(name="🏆 Score du mois", value=f"**{pts_mois} pts**", inline=True)
                 embed.add_field(name="🎭 Camp", value=team, inline=True)
-                embed.add_field(name="🌿 Inventaire Pokéweed", value=f"Abandonne **{total_pokes}** cartes derrière lui.", inline=False)
+                embed.add_field(name="🌿 Inventaire Kanamon", value=f"Abandonne **{total_pokes}** cartes derrière lui.", inline=False)
                 embed.add_field(name="📝 Bilan", value=f"*{note}*", inline=False)
 
                 embed.set_thumbnail(url=member.display_avatar.url)

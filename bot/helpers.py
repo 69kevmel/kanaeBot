@@ -1,5 +1,4 @@
 import logging
-import time
 import discord
 import aiohttp
 
@@ -202,164 +201,136 @@ async def update_member_prestige_role(member: discord.Member, points: int):
         logger.error(f"❌ [Prestige] Erreur inattendue pour {member.display_name} : {e}")
 
     
-async def refresh_event_message(bot: discord.Client):
-    """Met à jour le panneau d'affichage avec une vision stricte sur 2 semaines."""
+_event_panel_lock = None
+_event_panel_overrides = {}
 
-    event_channel_id = getattr(config, "EVENT_CHANNEL_ID", None)
-    event_message_id = getattr(config, "EVENT_MESSAGE_ID", None)
-    
-    if not event_channel_id or not event_message_id:
-        return
 
-    channel = bot.get_channel(event_channel_id)
-    if not channel:
-        return
-        
-    try:
-        msg = await channel.fetch_message(event_message_id)
-    except discord.NotFound:
-        return 
-        
-    db_events = await database.get_public_events(database.db_pool)
-    try:
-        discord_events = await msg.guild.fetch_scheduled_events()
-    except Exception:
-        discord_events = []
-
-    unified_events = []
-    db_event_ids = set()
-    
+def build_event_embeds(bot, guild, db_events, discord_events, now=None):
+    """Build a panel within Discord's 6000-character message-wide limit."""
     try:
         tz = zoneinfo.ZoneInfo("Europe/Paris")
-    except Exception:
+    except zoneinfo.ZoneInfoNotFoundError:
         tz = timezone(timedelta(hours=1))
-
-    # A) Traitement BDD
-    for d, heure_str, anim_id, titre, desc, event_id in db_events:
-        if event_id: db_event_ids.add(event_id)
-        
-        h, m = 0, 0
-        match = re.search(r"(\d{1,2})(?:[hH:](\d{2}))?", heure_str)
-        if match:
-            h = int(match.group(1))
-            m = int(match.group(2)) if match.group(2) else 0
-            
-        start_dt = datetime.combine(d, datetime.min.time()).replace(hour=h, minute=m, tzinfo=tz)
-        unified_events.append({"titre": titre, "desc": desc, "anim_id": anim_id, "start_dt": start_dt, "event_id": event_id})
-
-    # B) Traitement Discord Manuel
-    for e in discord_events:
-        if e.id not in db_event_ids:
-            unified_events.append({"titre": e.name, "desc": e.description or "*Pas de description.*", "anim_id": e.creator_id, "start_dt": e.start_time.astimezone(tz), "event_id": e.id})
-
-    # 2. Tri chronologique
-    unified_events.sort(key=lambda x: x["start_dt"])
-
-    # 🕒 Préparation des dates
-    now_ts = int(time.time())
-    now_dt = datetime.now(tz)
-    today = now_dt.date()
+    now = now or datetime.now(tz)
+    today = now.astimezone(tz).date()
+    unified = []
+    database_ids = set()
+    for d, heure, anim_id, titre, desc, event_id in db_events:
+        match = re.fullmatch(r"\s*(\d{1,2})(?:[hH:](\d{2})?)?\s*", str(heure))
+        try:
+            if not match:
+                raise ValueError("heure non reconnue")
+            start = datetime.combine(d, datetime.min.time()).replace(
+                hour=int(match[1]), minute=int(match[2] or 0), tzinfo=tz,
+            )
+        except (TypeError, ValueError):
+            logger.warning("Créneau ignoré dans le panneau : date/heure invalide (%s, %s)", d, heure)
+            continue
+        unified.append((start, titre or "Sans titre", desc or "Pas de description.", anim_id, event_id))
+        if event_id:
+            database_ids.add(event_id)
+    for event in discord_events:
+        if event.id not in database_ids and event.status in (discord.EventStatus.scheduled, discord.EventStatus.active):
+            unified.append((event.start_time.astimezone(tz), event.name, event.description or "Pas de description.", event.creator_id, event.id))
+    unified.sort(key=lambda row: row[0])
+    visible = [row for row in unified if today <= row[0].date() <= today + timedelta(days=14)]
+    hidden = sum(row[0].date() > today + timedelta(days=14) for row in unified)
+    header = "*Vision sur les 14 prochains jours de l'agenda Kanaé.* 💨\n\n"
+    header += f"📡 **Synchro :** <t:{int(now.timestamp())}:R>"
+    if hidden:
+        header += f"\n*(+{hidden} événement(s) prévu(s) plus tard)*"
+    main = discord.Embed(title="📅 L'AGENDA DES EVENTS KANAÉ", description=header, color=discord.Color.dark_theme())
+    if bot.user:
+        main.set_thumbnail(url=bot.user.display_avatar.url)
+    embeds = [main]
+    categories = [
+        ("🔥 IMMINENT", discord.Color.brand_red(), []),
+        ("📅 CETTE SEMAINE", discord.Color.gold(), []),
+        ("🚀 SEMAINE PROCHAINE", discord.Color.blue(), []),
+        ("📆 PLUS TARD", discord.Color.dark_grey(), []),
+    ]
     today_iso = today.isocalendar()[:2]
-    next_week_iso = (today + timedelta(days=7)).isocalendar()[:2]
-    two_weeks_limit = today + timedelta(days=14) # 🛡️ LA LIMITE DES 14 JOURS
-    jours_fr = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
-
-    # 🛡️ SÉCURITÉ : On ne garde que les events des 14 prochains jours
-    visible_events = []
-    hidden_count = 0
-    
-    for ev in unified_events:
-        if ev["start_dt"].date() <= two_weeks_limit:
-            visible_events.append(ev)
+    next_iso = (today + timedelta(days=7)).isocalendar()[:2]
+    for row in visible:
+        start = row[0]
+        if (start.date() - today).days <= 2:
+            index = 0
+        elif start.date().isocalendar()[:2] == today_iso:
+            index = 1
+        elif start.date().isocalendar()[:2] == next_iso:
+            index = 2
         else:
-            hidden_count += 1
+            index = 3
+        categories[index][2].append(row)
+    omitted = 0
+    jours_fr = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+    for name, color, rows in categories:
+        category = discord.Embed(title=f"─── {name} ───", color=color)
+        for start, titre, desc, anim_id, event_id in rows:
+            days = (start.date() - today).days
+            day = "Aujourd'hui" if days == 0 else "Demain" if days == 1 else f"{jours_fr[start.weekday()]} {start:%d/%m}"
+            field_name = f"📍 {day} • {start:%Hh%M}"
+            safe_desc = desc if len(desc) <= 150 else desc[:147] + "..."
+            anim = f"🎤 **Animé par :** <@{anim_id}>\n" if anim_id else ""
+            link = f"\n\n> 📥 **[REJOINDRE L'ÉVÉNEMENT (CLIQUE ICI)](https://discord.com/events/{guild.id}/{event_id})**" if event_id else ""
+            value = f"— {titre[:100].upper()}\n{anim}📝 *{safe_desc}*{link}\n\u200b"
+            value = value if len(value) <= 1024 else value[:1021] + "..."
+            # Reserve room for a message-wide overflow notice and footer.
+            size = sum(len(embed) for embed in embeds) + len(category) + len(field_name) + len(value)
+            if len(category.fields) >= 25 or size > 5700:
+                omitted += 1
+                continue
+            category.add_field(name=field_name, value=value, inline=False)
+        if category.fields:
+            embeds.append(category)
+    if omitted:
+        main.add_field(name="📚 Suite du planning", value=f"{omitted} événement(s) supplémentaire(s). Consulte `/planning` ou l'onglet Événements du serveur.", inline=False)
+    if not visible:
+        main.add_field(name="📭 Écran Vide...", value="*L'équipe prépare du lourd !* 🌿", inline=False)
+    embeds[-1].set_footer(text="🟢 Mis à jour automatiquement")
+    return embeds
 
-    categories = {
-        1: {"name": "🔥 IMMINENT", "color": discord.Color.brand_red(), "events": []},
-        2: {"name": "📅 CETTE SEMAINE", "color": discord.Color.gold(), "events": []},
-        3: {"name": "🚀 SEMAINE PROCHAINE", "color": discord.Color.blue(), "events": []},
-        4: {"name": "📆 PLUS TARD", "color": discord.Color.dark_grey(), "events": []}
-    }
 
-    # On utilise maintenant la liste filtrée
-    for ev in visible_events:
-        start = ev["start_dt"]
-        ev_date = start.date()
-        days_diff = (ev_date - today).days
-        ev_iso = ev_date.isocalendar()[:2]
-        
-        if days_diff == 0: ev["jour_str"] = "Aujourd'hui"
-        elif days_diff == 1: ev["jour_str"] = "Demain"
-        else: ev["jour_str"] = f"{jours_fr[start.weekday()]} {start.strftime('%d/%m')}"
-        
-        ev["heure_str"] = start.strftime("%Hh%M").replace("h00", "h")
-        
-        if days_diff <= 2: categories[1]["events"].append(ev)
-        elif ev_iso == today_iso: categories[2]["events"].append(ev)
-        elif ev_iso == next_week_iso: categories[3]["events"].append(ev)
-        else: categories[4]["events"].append(ev)
-
-    embeds = []
-
-    # Le Header Principal
-    desc_header = "*Vision sur les 14 prochains jours de l'agenda Kanaé.* 💨\n\n" f"📡 **Synchro :** <t:{now_ts}:R>"
-    
-    # On indique combien d'événements sont cachés car prévus dans + de 2 semaines
-    if hidden_count > 0:
-        s = "s" if hidden_count > 1 else ""
-        desc_header += f"\n*(+{hidden_count} autre{s} événement{s} prévu{s} plus tard)*"
-
-    main_embed = discord.Embed(
-        title="📅 L'AGENDA DES EVENTS KANAÉ", 
-        description=desc_header,
-        color=discord.Color.dark_theme()
-    )
-    main_embed.set_thumbnail(url=bot.user.display_avatar.url)
-    embeds.append(main_embed)
-
-    if not visible_events:
-        main_embed.add_field(name="📭 Écran Vide...", value="*L'équipe prépare du lourd !* 🌿", inline=False)
-        main_embed.set_footer(text="🟢 Mis à jour automatiquement", icon_url="https://i.imgur.com/8Q5A40b.gif")
-    else:
-        for cat_id, cat_data in categories.items():
-            if not cat_data["events"]:
-                continue 
-                
-            cat_embed = discord.Embed(title=f"─── {cat_data['name']} ───", color=cat_data["color"])
-            
-            for ev in cat_data["events"]:
-                anim_text = f"🎤 **Animé par :** <@{ev['anim_id']}>\n" if ev['anim_id'] else ""
-                event_link = ""
-                if ev["event_id"]:
-                    url = f"https://discord.com/events/{msg.guild.id}/{ev['event_id']}"
-                    event_link = f"\n\n> 📥 **[REJOINDRE L'ÉVÉNEMENT (CLIQUE ICI)]({url})**"
-
-                # Sécurité taille : description tronquée (E4)
-                safe_desc = ev['desc']
-                if len(safe_desc) > 150:
-                    safe_desc = safe_desc[:147] + "..."
-
-                # Sécurité taille : titre tronqué à 100 chars (E4)
-                safe_titre = ev['titre'][:100]
-
-                val = f"— {safe_titre.upper()}\n{anim_text}📝 *{safe_desc}*{event_link}\n\u200b"
-
-                # Guard : on ne dépasse pas 1024 chars par field value (limite Discord) (E4)
-                if len(val) > 1024:
-                    val = val[:1021] + "..."
-
-                field_name = f"📍 {ev['jour_str']} • {ev['heure_str']}"
-
-                # Guard : on ne dépasse pas 6000 chars par embed (limite Discord) (E4)
-                current_size = sum(len(f.name) + len(f.value) for f in cat_embed.fields)
-                if current_size + len(field_name) + len(val) > 5800:
-                    cat_embed.add_field(name="\u200b", value="*… et d'autres events. Consulte le planning complet avec `/planning`.*", inline=False)
-                    break
-
-                cat_embed.add_field(name=field_name, value=val, inline=False)
-            
-            embeds.append(cat_embed)
-            
-        embeds[-1].set_footer(text="🟢 Mis à jour automatiquement", icon_url="https://i.imgur.com/8Q5A40b.gif")
-
-    await msg.edit(content="", embeds=embeds[:10], view=None)
+async def refresh_event_message(bot: discord.Client):
+    """Refresh the public panel, recreating and remembering a deleted message."""
+    import asyncio
+    global _event_panel_lock
+    if _event_panel_lock is None:
+        _event_panel_lock = asyncio.Lock()
+    async with _event_panel_lock:
+        channel_id = getattr(config, "EVENT_CHANNEL_ID", None)
+        source_id = getattr(config, "EVENT_MESSAGE_ID", None)
+        if not channel_id or not source_id:
+            return None
+        channel = bot.get_channel(channel_id)
+        if channel is None:
+            channel = await bot.fetch_channel(channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            return None
+        permissions = channel.permissions_for(channel.guild.me)
+        if not (permissions.view_channel and permissions.read_message_history and permissions.send_messages and permissions.embed_links):
+            raise PermissionError("Le bot doit voir le salon du planning, lire son historique, y envoyer des messages et intégrer des liens.")
+        key = (channel_id, source_id)
+        message_id = _event_panel_overrides.get(key)
+        if message_id is None:
+            message_id = await database.get_event_panel_message_id(database.db_pool, channel_id, source_id)
+        try:
+            message = await channel.fetch_message(message_id)
+        except discord.NotFound:
+            message = None
+        if message is not None and message.author.id != bot.user.id:
+            raise PermissionError("Le message configuré pour le planning n'appartient pas au bot.")
+        db_events = await database.get_public_events(database.db_pool)
+        # Preserve the existing panel when native events cannot be fetched.
+        discord_events = await channel.guild.fetch_scheduled_events()
+        embeds = build_event_embeds(bot, channel.guild, db_events, discord_events)
+        if message is None:
+            message = await channel.send(embeds=embeds, allowed_mentions=discord.AllowedMentions.none())
+            _event_panel_overrides[key] = message.id
+        else:
+            await message.edit(content="", embeds=embeds, view=None, allowed_mentions=discord.AllowedMentions.none())
+        if message.id != source_id:
+            # Cache first, so a transient persistence error cannot create duplicates.
+            _event_panel_overrides[key] = message.id
+            await database.save_event_panel_message_id(database.db_pool, channel_id, source_id, message.id)
+        return message

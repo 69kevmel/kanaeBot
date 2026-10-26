@@ -120,7 +120,7 @@ class ClaimPokeweedView(discord.ui.View):
     async def claim_callback(self, interaction: discord.Interaction):
         # Sécurité 1 : Vérifie si c'est bien l'auteur de la commande
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message("❌ Bas les pattes, ce n'est pas ton Pokédex !", ephemeral=True)
+            await interaction.response.send_message("❌ Bas les pattes, ce n'est pas ton Kanadeck !", ephemeral=True)
             return
 
         # Sécurité 2 : Empêche le spam de clics
@@ -256,7 +256,7 @@ class TradeOfferView(discord.ui.View):
                 embed.title = "🤝 Échange terminé avec succès !"
                 await interaction.edit_original_response(embed=embed, view=self)
                 
-                # 2. On envoie l'annonce officielle DIRECTEMENT dans le salon Pokéweed
+                # 2. On envoie l'annonce officielle DIRECTEMENT dans le salon Kanamon
                 pokeweed_channel = interaction.client.get_channel(config.CHANNEL_POKEWEED_ID)
                 success_msg = f"🎉 **Échange réussi !** {self.u1.mention} récupère **{self.p2_name}** et {self.u2.mention} récupère **{self.p1_name}** ! 🤝🌿"
                 
@@ -306,7 +306,7 @@ class TradePreviewView(discord.ui.View):
         # On envoie le VRAI message de proposition sur le channel
         channel = interaction.channel
         embed = discord.Embed(
-            title="🔄 Proposition d'Échange Pokéweed",
+            title="🔄 Proposition d'Échange Kanamon",
             description=f"{self.u2.mention}, tu as **2 heures** pour répondre à l'offre de {self.u1.mention} !",
             color=discord.Color.gold()
         )
@@ -754,7 +754,7 @@ def setup(bot: commands.Bot):
         name = re.sub(r'[^a-zA-Z0-9]', '', name)
         return name.lower()
 
-    @bot.tree.command(name="booster", description="Ouvre un booster de 4 Pokéweeds aléatoires !")
+    @bot.tree.command(name="booster", description="Ouvre un booster de 4 Kanamons aléatoires !")
     async def booster(interaction: discord.Interaction):
         user_id = interaction.user.id
         now = datetime.now(timezone.utc)
@@ -892,10 +892,10 @@ def setup(bot: commands.Bot):
     # ---------------------------------------
     # /capture
     # ---------------------------------------
-    @bot.tree.command(name="capture", description="Tente de capturer le Pokéweed sauvage")
+    @bot.tree.command(name="capture", description="Tente de capturer le Kanamon sauvage")
     async def capture(interaction: discord.Interaction):
         if not state.current_spawn:
-            await interaction.response.send_message("❌ Aucun Pokéweed à capturer maintenant...", ephemeral=True)
+            await interaction.response.send_message("❌ Aucun Kanamon à capturer maintenant...", ephemeral=True)
             return
 
         winner_id = getattr(state, "capture_winner", None)
@@ -937,7 +937,7 @@ def setup(bot: commands.Bot):
         # Message éphémère (Secret)
         if owned_before > 0:
             total_owned = owned_before + 1
-            # On réutilise le bouton magique créé pour le Pokédex !
+            # On réutilise le bouton magique créé pour le Kanadeck !
             view = ClaimPokeweedView(user_id, pid, name, cap_pts, total_owned)
             
             await interaction.response.send_message(
@@ -948,15 +948,15 @@ def setup(bot: commands.Bot):
             )
         else:
             # S'il ne l'avait pas, on le félicite juste
-            await interaction.response.send_message("✅ Tu l’as capturé ! 🆕 C'est une toute nouvelle carte pour ton Pokédex !", ephemeral=True)
+            await interaction.response.send_message("✅ Tu l’as capturé ! 🆕 C'est une toute nouvelle carte pour ton Kanadeck !", ephemeral=True)
 
     # ---------------------------------------
-    # /pokedex
+    # /kanadeck
     # ---------------------------------------
-    # ✅ VERSION ILLUSTRÉE DU /pokedex
-    # À intégrer dans commands.py — affiche chaque Pokéweed possédé avec image (embed par carte)
+    # ✅ VERSION ILLUSTRÉE DU /kanadeck
+    # À intégrer dans commands.py — affiche chaque Kanamon possédé avec image (embed par carte)
 
-    # ✅ VERSION INTERACTIVE DU /pokedex AVEC BOUTONS PAR RARETÉ
+    # ✅ VERSION INTERACTIVE DU /kanadeck AVEC BOUTONS PAR RARETÉ
 
     RARITY_ORDER = [
         ("Commun", "🌿"),
@@ -972,22 +972,23 @@ def setup(bot: commands.Bot):
         return re.sub(r'[^a-zA-Z0-9]', '', name).lower()
 
     class RarityButton(discord.ui.Button):
-        def __init__(self, rarity, emoji, user, pokes):
+        def __init__(self, rarity, emoji, owner, pokes, viewer_id):
             label = f"{emoji} {rarity}"
             super().__init__(label=label, style=discord.ButtonStyle.secondary, custom_id=rarity)
             self.rarity = rarity
-            self.user = user
+            self.owner = owner
             self.pokes = pokes
+            self.viewer_id = viewer_id
 
         async def callback(self, interaction: discord.Interaction):
             await interaction.response.defer(ephemeral=True)
 
-            if interaction.user.id != self.user.id:
-                await interaction.followup.send("❌ Ce Pokédex n’est pas le tien.", ephemeral=True)
+            if interaction.user.id != self.viewer_id:
+                await interaction.followup.send("❌ Ce menu Kanadeck appartient à un autre utilisateur.", ephemeral=True)
                 return
 
             if not self.pokes:
-                await interaction.followup.send(f"📭 Tu n’as aucun Pokéweed de rareté **{self.rarity}**.", ephemeral=True)
+                await interaction.followup.send(f"📭 Aucun Kanamon de rareté **{self.rarity}** dans ce Kanadeck.", ephemeral=True)
                 return
 
             for pid, name, hp, cap_pts, power, rarity_val, total, last_date in self.pokes:
@@ -1002,39 +1003,43 @@ def setup(bot: commands.Bot):
                 )
                 
                 # Ajout de la vue avec le bouton "Vendre"
-                # (On empêche la vente si c'est le Pokedex d'un autre membre)
-                view = ClaimPokeweedView(self.user.id, pid, name, cap_pts, total) if interaction.user.id == self.user.id else None
+                # (On empêche la vente si c'est le Kanadeck d'un autre membre)
+                send_options = {"embed": embed, "ephemeral": True}
+                if interaction.user.id == self.owner.id:
+                    send_options["view"] = ClaimPokeweedView(self.owner.id, pid, name, cap_pts, total)
 
                 if os.path.exists(path):
                     file = discord.File(path, filename=filename)
                     embed.set_image(url=f"attachment://{filename}")
-                    await interaction.followup.send(embed=embed, file=file, view=view, ephemeral=True)
+                    await interaction.followup.send(file=file, **send_options)
                 else:
                     embed.description += "\n⚠️ Image non trouvée."
-                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                    await interaction.followup.send(**send_options)
 
                 await asyncio.sleep(0.2)
 
-            # ✅ Une fois TOUS les pokéweeds envoyés, on redonne les boutons
+            # ✅ Une fois TOUS les Kanamons envoyés, on redonne les boutons
             await interaction.followup.send(
                 content="👀 Tu veux regarder une autre rareté ? Clique sur un autre bouton ci-dessous.",
-                view=RarityView(self.view.pokemons_by_rarity, self.view.user),
+                view=RarityView(self.view.pokemons_by_rarity, self.owner, self.viewer_id),
                 ephemeral=True
             )
 
     class RarityView(discord.ui.View):
-        def __init__(self, pokemons_by_rarity: dict, user: discord.User):
+        def __init__(self, pokemons_by_rarity: dict, owner: discord.User, viewer_id: int):
             super().__init__(timeout=300)
             self.pokemons_by_rarity = pokemons_by_rarity  # ✅ Ajouté
-            self.user = user  # ✅ Ajouté
+            self.owner = owner
+            self.viewer_id = viewer_id
 
             for rarity, emoji in RARITY_ORDER:
                 pokes = pokemons_by_rarity.get(rarity, [])
-                self.add_item(RarityButton(rarity, emoji, user, pokes))
+                self.add_item(RarityButton(rarity, emoji, owner, pokes, viewer_id))
 
-    @bot.tree.command(name="pokedex", description="Affiche ton Pokédex personnel ou celui d’un autre")
-    @app_commands.describe(membre="Le membre dont tu veux voir le Pokédex")
+    @bot.tree.command(name="kanadeck", description="Affiche ton Kanadeck personnel ou celui d’un autre")
+    @app_commands.describe(membre="Le membre dont tu veux voir le Kanadeck")
     async def pokedex(interaction: discord.Interaction, membre: discord.Member = None):
+        await interaction.response.defer(ephemeral=True)
         target = membre if membre else interaction.user
 
         async with database.db_pool.acquire() as conn:
@@ -1053,7 +1058,7 @@ def setup(bot: commands.Bot):
                 total_available = (await cur.fetchone())[0]
 
         if not rows:
-            await interaction.response.send_message(f"📘 {target.display_name} n’a capturé aucun Pokéweed...", ephemeral=True)
+            await interaction.followup.send(f"📘 {target.display_name} n’a capturé aucun Kanamon...", ephemeral=True)
             return
 
         pokemons_by_rarity = {}
@@ -1065,17 +1070,17 @@ def setup(bot: commands.Bot):
         missing = total_available - unique_count
 
         summary = (
-            f"📘 **Pokédex de {target.display_name}**\n\n"
+            f"📘 **Kanadeck de {target.display_name}**\n\n"
             f"✅ Cartes uniques : {unique_count}/{total_available}\n"
             f"📦 Total : {total_count} cartes\n"
-            f"❗ Il manque encore **{missing}** Pokéweeds pour compléter le Pokédex !\n\n"
-            "👆 Clique sur les boutons ci-dessous pour afficher les Pokéweeds par rareté.\n\n"
+            f"❗ Il manque encore **{missing}** Kanamons pour compléter le Kanadeck !\n\n"
+            "👆 Clique sur les boutons ci-dessous pour afficher les Kanamons par rareté.\n\n"
             "\u200b"
         )
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             summary,
-            view=RarityView(pokemons_by_rarity, target),
+            view=RarityView(pokemons_by_rarity, target, interaction.user.id),
             ephemeral=True
         )
 
@@ -1083,7 +1088,7 @@ def setup(bot: commands.Bot):
     # ---------------------------------------
     # /init-pokeweeds (admin)
     # ---------------------------------------
-    @bot.tree.command(name="init-pokeweeds", description="Insère les 31 Pokéweed de base")
+    @bot.tree.command(name="init-pokeweeds", description="Insère les 31 Kanamons de base")
     async def init_pokeweeds(interaction: discord.Interaction):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ Admin uniquement.", ephemeral=True)
@@ -1128,7 +1133,7 @@ def setup(bot: commands.Bot):
                 for s in strains:
                     await cur.execute("INSERT INTO pokeweeds (name, hp, capture_points, power, rarity, drop_rate) VALUES (%s,%s,%s,%s,%s,%s);", s)
 
-        await interaction.response.send_message("🌿 31 Pokéweed insérés !", ephemeral=True)
+        await interaction.response.send_message("🌿 31 Kanamons insérés !", ephemeral=True)
 
     # ---------------------------------------
     # /link-twitch
@@ -1402,10 +1407,10 @@ def setup(bot: commands.Bot):
             "   • 👑 **Bonus Créateur :** +2 points quand quelqu'un répond à ton sujet.\n\n"
             "📺 **Activité Twitch**\n"
             "   • 💬 **Chat en live :** +1 point par minute quand tu écris pendant que le live est ON !\n\n"
-            "🌿 **Mini-Jeu Pokéweed**\n"
+            "🌿 **Mini-Jeu Kanamon**\n"
             "   • 🃏 **`/booster` :** +2 à +15 points par carte (+5 pts si c'est une nouvelle !).\n"
             "   • ⚡ **`/capture` :** Gagne la valeur en points de la carte si tu l'attrapes en premier.\n"
-            "   • 💰 **Vente :** Tu peux revendre tes doublons directement depuis ton `/pokedex`.\n\n"
+            "   • 💰 **Vente :** Tu peux revendre tes doublons directement depuis ton `/kanadeck`.\n\n"
             "🔥 *Que le meilleur gagne frérot, fais grimper ton prestige !*"
         )
         await interaction.response.send_message(message, ephemeral=True)
@@ -1427,10 +1432,10 @@ def setup(bot: commands.Bot):
             "   • `/bet [mise]` : Tente de doubler tes points au casino.\n"
             "   • `/douille [mise]` : Lance une roulette russe multijoueur.\n"
             "   • `/machine420 [mise]` : 🎰 Tire le bras de la machine et tente le Jackpot 420 !\n\n"
-            "🌿 **Mini-Jeu Pokéweed**\n"
+            "🌿 **Mini-Jeu Kanamon**\n"
             "   • `/booster` : Ouvre un paquet de 4 cartes (disponible toutes les 12h).\n"
-            "   • `/capture` : Attrape le Pokéweed sauvage qui vient d'apparaître.\n"
-            "   • `/pokedex [@membre]` : Ta collection illustrée avec option de vente.\n"
+            "   • `/capture` : Attrape le Kanamon sauvage qui vient d'apparaître.\n"
+            "   • `/kanadeck [@membre]` : Ta collection illustrée avec option de vente.\n"
             "   • `/echange [@membre]` : Propose un échange sécurisé de cartes à un pote.\n\n"
             "📺 **Twitch & Réseaux**\n"
             "   • `/link-twitch [pseudo]` : Relie ton compte pour gagner tes points.\n"
@@ -1440,6 +1445,17 @@ def setup(bot: commands.Bot):
             "*(Les commandes admin ne sont pas listées ici 🥷)*"
         )
         await interaction.response.send_message(message, ephemeral=True)
+        if isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.manage_messages:
+            await interaction.followup.send(
+                "🛠️ **COMMANDES DU STAFF**\n\n"
+                "• `/kanasay salon message` : Publie avec le bot dans un salon autorisé "
+                "(2 000 caractères maximum ; les mentions ne notifient personne).\n"
+                "• `/modifier-event creneau [titre] [description]` : Corrige ton événement réservé "
+                "(les admins peuvent tous les modifier). Les deux champs sont optionnels ; "
+                "sans eux, actualise seulement le panneau.\n"
+                "• `/actualiser-events` : Actualise le panneau du planning et le recrée s'il a été supprimé.",
+                ephemeral=True,
+            )
     
     # ---------------------------------------
     # /mes-reseaux
@@ -1696,7 +1712,7 @@ def setup(bot: commands.Bot):
     # ---------------------------------------
     # /spawn (admin)
     # ---------------------------------------
-    @bot.tree.command(name="spawn", description="Force le spawn immédiat d’un Pokéweed (admin only)")
+    @bot.tree.command(name="spawn", description="Force le spawn immédiat d’un Kanamon (admin only)")
     async def spawn_cmd(interaction: discord.Interaction):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ Admin uniquement.", ephemeral=True)
@@ -1707,7 +1723,7 @@ def setup(bot: commands.Bot):
         await interaction.response.defer(ephemeral=True)
         try:
             await tasks.spawn_pokeweed(bot)
-            await interaction.followup.send("✅ Un Pokéweed vient de spawn dans le channel dédié !", ephemeral=True)
+            await interaction.followup.send("✅ Un Kanamon vient de spawn dans le channel dédié !", ephemeral=True)
         except Exception as e:
             logger.exception("Erreur dans /spawn : %s", e)
             await interaction.followup.send(f"❌ Une erreur est survenue : {e}", ephemeral=True)
@@ -1851,7 +1867,7 @@ def setup(bot: commands.Bot):
             pokes = await database.get_user_pokeweeds_unique(database.db_pool, target_id)
             
             if not pokes:
-                return [app_commands.Choice(name="❌ Ce joueur n'a aucun Pokéweed...", value="error")]
+                return [app_commands.Choice(name="❌ Ce joueur n'a aucun Kanamon...", value="error")]
                 
             choices = []
             for pid, name, rarity, count in pokes:
@@ -1871,7 +1887,7 @@ def setup(bot: commands.Bot):
     # ---------------------------------------
     # /echange
     # ---------------------------------------
-    @bot.tree.command(name="echange", description="Propose un échange de Pokéweed à un autre membre !")
+    @bot.tree.command(name="echange", description="Propose un échange de Kanamon à un autre membre !")
     @app_commands.describe(
         membre="Avec qui veux-tu échanger ?",
         mon_pokeweed="La carte que TU donnes",
@@ -2817,7 +2833,7 @@ def setup(bot: commands.Bot):
 
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                # Total Pokéweeds possédés
+                # Total Kanamons possédés
                 await cur.execute("SELECT COUNT(*) FROM user_pokeweeds WHERE user_id=%s;", (user_id_str,))
                 poke_count = (await cur.fetchone())[0]
 
@@ -2850,7 +2866,7 @@ def setup(bot: commands.Bot):
         embed_profil.add_field(name="🏆 Score du mois", value=f"**{score_mois}** pts", inline=True)
         embed_profil.add_field(name="🔥 Wake & Bake", value=f"Série : **{wb_streak}**j", inline=True)
 
-        embed_profil.add_field(name="🌿 Inventaire Pokéweed", value=f"**{poke_count}** cartes", inline=True)
+        embed_profil.add_field(name="🌿 Inventaire Kanamon", value=f"**{poke_count}** cartes", inline=True)
         embed_profil.add_field(name="🔗 Réseaux liés", value=socials_text, inline=True)
         embed_profil.add_field(name="\u200b", value="\u200b", inline=True)
 

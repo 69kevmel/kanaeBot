@@ -4,7 +4,7 @@ import logging
 import discord
 from discord.ext import commands
 
-from bot import config, events, commands as bot_commands, tasks, loup_garou
+from bot import config, events, commands as bot_commands, tasks, loup_garou, say_commands, event_commands
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
@@ -20,6 +20,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Register events and commands (Fichiers normaux)
 events.setup(bot)
 bot_commands.setup(bot)
+say_commands.setup(bot)
+event_commands.setup(bot)
 
 async def main():
     async with bot:

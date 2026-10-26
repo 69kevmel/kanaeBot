@@ -1,5 +1,6 @@
 import logging
 import aiomysql
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone, timedelta
 
 from . import config
@@ -232,6 +233,13 @@ async def ensure_tables(pool):
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """
             )
+            # Persistance des panneaux recréés après suppression de leur message.
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS bot_settings (
+                    setting_key VARCHAR(100) PRIMARY KEY,
+                    setting_value VARCHAR(255) NOT NULL
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            """)
             # Tables pour le système de relance des inactifs
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS mp_revient_tracking (
@@ -740,6 +748,57 @@ async def get_pro_slot_by_id(pool, slot_id):
         async with conn.cursor() as cur:
             await cur.execute("SELECT slot_date, heure, titre, event_id FROM planning_pro WHERE id = %s;", (int(slot_id),))
             return await cur.fetchone()
+
+
+@asynccontextmanager
+async def locked_pro_slot(pool, slot_id):
+    """Lock a reservation until its Discord edit and database update finish.
+
+    The explicit transaction is needed because the pool uses autocommit.
+    Existing reservation/cancellation updates also respect this row lock.
+    """
+    async with pool.acquire() as conn:
+        await conn.begin()
+        try:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT slot_date, heure, est_reserve, animateur_id, titre, description, event_id "
+                    "FROM planning_pro WHERE id = %s FOR UPDATE;",
+                    (int(slot_id),),
+                )
+                yield await cur.fetchone(), cur
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
+
+
+async def update_pro_slot_content(cursor, slot_id, titre, description):
+    """Update only content; retain the event ID, date and reservation owner."""
+    await cursor.execute(
+        "UPDATE planning_pro SET titre = %s, description = %s WHERE id = %s;",
+        (titre, description, int(slot_id)),
+    )
+
+
+async def get_event_panel_message_id(pool, channel_id, source_message_id):
+    key = f"event_panel:{int(channel_id)}:{int(source_message_id)}"
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT setting_value FROM bot_settings WHERE setting_key = %s;", (key,))
+            row = await cur.fetchone()
+            return int(row[0]) if row else int(source_message_id)
+
+
+async def save_event_panel_message_id(pool, channel_id, source_message_id, message_id):
+    key = f"event_panel:{int(channel_id)}:{int(source_message_id)}"
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO bot_settings (setting_key, setting_value) VALUES (%s, %s) "
+                "ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);",
+                (key, str(int(message_id))),
+            )
         
 async def delete_pro_slot(pool, slot_id):
     """Supprime définitivement un créneau de la base de données."""
